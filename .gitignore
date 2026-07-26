@@ -3,6 +3,7 @@ dist
 out
 out-*
 node_modules
+Zoo-Code/
 package-lock.json
 coverage/
 mock/
