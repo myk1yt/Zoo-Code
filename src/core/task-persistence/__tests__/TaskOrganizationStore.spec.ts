@@ -88,7 +88,7 @@ describe("TaskOrganizationStore", () => {
 	describe("initialize()", () => {
 		it("loads an empty state when no file exists", async () => {
 			await store.initialize()
-			expect(store.getState()).toEqual(createEmptyTaskOrganizationState())
+			expect(store.getState()).toEqual(createEmptyTaskOrganizationState(1000))
 		})
 
 		it("loads a previously saved state", async () => {
@@ -118,7 +118,7 @@ describe("TaskOrganizationStore", () => {
 
 			await store.initialize()
 
-			expect(store.getState()).toEqual(createEmptyTaskOrganizationState())
+			expect(store.getState()).toEqual(createEmptyTaskOrganizationState(1000))
 			const quarantineFiles = (await fs.readdir(tasksDir)).filter((name) =>
 				name.startsWith("_taskOrganization.json.corrupt_"),
 			)
@@ -669,7 +669,7 @@ describe("TaskOrganizationStore", () => {
 	})
 
 	describe("concurrent mutations", () => {
-		it("serializes concurrent mutations so revisions are sequential", async () => {
+		it("serializes concurrent mutations so only the first one wins", async () => {
 			await store.initialize()
 			const promises = Array.from({ length: 5 }, (_, i) =>
 				store.mutate(
@@ -680,14 +680,17 @@ describe("TaskOrganizationStore", () => {
 						source: { kind: "task", taskId: `s${i}` },
 						destination: { kind: "task", taskId: `d${i}` },
 					},
-					i,
+					0,
 				),
 			)
 			const results = await Promise.all(promises)
 			const successful = results.filter((r) => r.success)
-			// Only the first mutation can succeed because each uses the previous revision.
+			// All concurrent callers saw the same base revision, so only the first
+			// to commit can win; the rest are stale.
 			expect(successful).toHaveLength(1)
 			expect(successful[0].committedRevision).toBe(1)
+			const conflicts = results.filter((r) => !r.success && r.error?.code === "TASK_ORG/CONFLICT/002")
+			expect(conflicts).toHaveLength(4)
 		})
 	})
 })

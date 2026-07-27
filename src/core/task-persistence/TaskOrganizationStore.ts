@@ -77,7 +77,7 @@ export class TaskOrganizationStore {
 	private readonly taskHistory?: { get(taskId: string): HistoryItem | undefined }
 	private readonly now: () => number
 
-	private state: TaskOrganizationStateV1 = createEmptyTaskOrganizationState()
+	private state: TaskOrganizationStateV1 = createEmptyTaskOrganizationState(0)
 	private writeLock: Promise<void> = Promise.resolve()
 	private fsWatcher: fsSync.FSWatcher | null = null
 	private watcherDebounce: ReturnType<typeof setTimeout> | null = null
@@ -260,11 +260,11 @@ export class TaskOrganizationStore {
 			raw = await fs.readFile(filePath, "utf8")
 		} catch (err: any) {
 			if (err.code === "ENOENT") {
-				this.state = createEmptyTaskOrganizationState()
+				this.state = createEmptyTaskOrganizationState(this.now())
 				return
 			}
 			console.error("[TaskOrganizationStore] Failed to read organization file:", err)
-			this.state = createEmptyTaskOrganizationState()
+			this.state = createEmptyTaskOrganizationState(this.now())
 			return
 		}
 
@@ -274,7 +274,18 @@ export class TaskOrganizationStore {
 		} catch (err) {
 			await this.quarantine(filePath, raw)
 			console.warn("[TaskOrganizationStore] Organization file was malformed and has been quarantined.")
-			this.state = createEmptyTaskOrganizationState()
+			this.state = createEmptyTaskOrganizationState(this.now())
+			return
+		}
+
+		if (
+			typeof parsed === "object" &&
+			parsed !== null &&
+			typeof (parsed as any).schemaVersion === "number" &&
+			(parsed as any).schemaVersion > 1
+		) {
+			console.warn("[TaskOrganizationStore] Organization file has a future schema version.")
+			this.state = parsed as unknown as TaskOrganizationStateV1
 			return
 		}
 
@@ -282,18 +293,11 @@ export class TaskOrganizationStore {
 		if (!result.success) {
 			await this.quarantine(filePath, raw)
 			console.warn("[TaskOrganizationStore] Organization file failed validation and has been quarantined.")
-			this.state = createEmptyTaskOrganizationState()
+			this.state = createEmptyTaskOrganizationState(this.now())
 			return
 		}
 
 		const data = result.data
-
-		if (data.schemaVersion > 1) {
-			console.warn("[TaskOrganizationStore] Organization file has a future schema version.")
-			this.state = data as unknown as TaskOrganizationStateV1
-			return
-		}
-
 		this.state = this.normalize(data)
 	}
 
@@ -583,8 +587,12 @@ export class TaskOrganizationStore {
 
 	private resolveUnit(target: TaskOrganizationTargetV1): string[] {
 		switch (target.kind) {
-			case "task":
-				return [target.taskId]
+			case "task": {
+				// If the task belongs to an automatic group, operate on the whole
+				// closure so drag-and-drop keeps the parent/children together.
+				const closure = this.resolveTaskClosure(target.taskId)
+				return closure.ids
+			}
 			case "folder": {
 				const folder = this.state.folders.find((f) => f.folderId === target.folderId)
 				return folder ? [...folder.taskIds] : []

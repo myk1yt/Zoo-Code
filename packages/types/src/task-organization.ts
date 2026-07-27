@@ -164,12 +164,12 @@ export type TaskOrganizationMutationResultV1 = z.infer<typeof taskOrganizationMu
 /**
  * Creates an empty, version-1 task organization state.
  */
-export function createEmptyTaskOrganizationState(): TaskOrganizationStateV1 {
+export function createEmptyTaskOrganizationState(now: number = 0): TaskOrganizationStateV1 {
 	return {
 		schemaVersion: 1,
 		revision: 0,
 		folders: [],
 		pins: [],
-		updatedAt: Date.now(),
+		updatedAt: now,
 	}
 }
