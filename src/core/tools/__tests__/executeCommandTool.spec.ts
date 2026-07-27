@@ -29,7 +29,7 @@ vitest.mock("vscode", () => ({
 vitest.mock("../../../integrations/terminal/TerminalRegistry", () => ({
 	TerminalRegistry: {
 		getOrCreateTerminal: vitest.fn().mockResolvedValue({
-			runCommand: vitest.fn().mockImplementation((_cmd: string, callbacks: any) => {
+			runCommand: vitest.fn().mockImplementation((_cmd: string, callbacks: RooTerminalCallbacks) => {
 				// Invoke onCompleted so onCompletedPromise resolves and the tool returns.
 				callbacks?.onCompleted?.("")
 				const p = Promise.resolve()
@@ -50,10 +50,18 @@ const { executeCommandTool } = executeCommandModule
 
 describe("executeCommandTool", () => {
 	// Setup common test variables
-	let mockCline: any & { consecutiveMistakeCount: number; didRejectTool: boolean }
-	let mockAskApproval: any
-	let mockHandleError: any
-	let mockPushToolResult: any
+	let mockCline: Partial<Task> & {
+		consecutiveMistakeCount: number
+		didRejectTool: boolean
+		rooIgnoreController: { validateCommand: ReturnType<typeof vitest.fn> }
+		recordToolUsage: ReturnType<typeof vitest.fn>
+		recordToolError: ReturnType<typeof vitest.fn>
+		providerRef: { deref: ReturnType<typeof vitest.fn> }
+		lastMessageTs: number
+	}
+	let mockAskApproval: ReturnType<typeof vitest.fn>
+	let mockHandleError: ReturnType<typeof vitest.fn>
+	let mockPushToolResult: ReturnType<typeof vitest.fn>
 	let mockToolUse: ToolUse<"execute_command">
 	const originalCliRuntime = process.env.ROO_CLI_RUNTIME
 
@@ -98,11 +106,11 @@ describe("executeCommandTool", () => {
 
 		// Setup vscode config mock
 		const mockConfig = {
-			get: vitest.fn().mockImplementation((key: string, defaultValue: any) => {
+			get: vitest.fn().mockImplementation((key: string, defaultValue: unknown) => {
 				return defaultValue
 			}),
 		}
-		;(vscode.workspace.getConfiguration as any).mockReturnValue(mockConfig)
+		;(vscode.workspace.getConfiguration as ReturnType<typeof vitest.fn>).mockReturnValue(mockConfig)
 
 		// Create a mock tool use object
 		mockToolUse = {
@@ -249,7 +257,7 @@ describe("executeCommandTool", () => {
 			}
 
 			const mockRooIgnoreError = "RooIgnore error"
-			;(formatResponse.rooIgnoreError as any).mockReturnValue(mockRooIgnoreError)
+			;(formatResponse.rooIgnoreError as ReturnType<typeof vitest.fn>).mockReturnValue(mockRooIgnoreError)
 
 			// Execute
 			await executeCommandTool.handle(mockCline as unknown as Task, mockToolUse, {
@@ -286,7 +294,7 @@ describe("executeCommandTool", () => {
 			// fallback. On the retry, no shell integration error is triggered.
 			const { TerminalRegistry } = await import("../../../integrations/terminal/TerminalRegistry")
 			let callCount = 0
-			const mockRunCommand = vitest.fn().mockImplementation((_cmd: string, callbacks: any) => {
+			const mockRunCommand = vitest.fn().mockImplementation((_cmd: string, callbacks: RooTerminalCallbacks) => {
 				callCount++
 				if (callCount === 1) {
 					// First call: simulate shell integration error with commandSubmitted: true
@@ -300,7 +308,7 @@ describe("executeCommandTool", () => {
 				const p = Promise.resolve()
 				return Object.assign(p, { continue: () => {}, abort: () => {} })
 			})
-			;(TerminalRegistry.getOrCreateTerminal as any).mockResolvedValue({
+			;(TerminalRegistry.getOrCreateTerminal as ReturnType<typeof vitest.fn>).mockResolvedValue({
 				runCommand: mockRunCommand,
 				getCurrentWorkingDirectory: vitest.fn().mockReturnValue("/test/workspace"),
 			})
@@ -330,7 +338,7 @@ describe("executeCommandTool", () => {
 			// Simulate a generic error (not ShellIntegrationError) by making
 			// TerminalRegistry.getOrCreateTerminal throw.
 			const { TerminalRegistry } = await import("../../../integrations/terminal/TerminalRegistry")
-			;(TerminalRegistry.getOrCreateTerminal as any).mockRejectedValue(new Error("Unexpected terminal failure"))
+			;(TerminalRegistry.getOrCreateTerminal as ReturnType<typeof vitest.fn>).mockRejectedValue(new Error("Unexpected terminal failure"))
 	
 			mockToolUse.params.command = "echo test"
 			mockToolUse.nativeArgs = { command: "echo test" }
