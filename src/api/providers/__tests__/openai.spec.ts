@@ -6,6 +6,7 @@ import { Anthropic } from "@anthropic-ai/sdk"
 import OpenAI from "openai"
 import { openAiModelInfoSaneDefaults, DEEP_SEEK_DEFAULT_TEMPERATURE } from "@roo-code/types"
 import { Package } from "../../../shared/package"
+import { ApiStreamChunk } from "../../transform/stream"
 import axios from "axios"
 
 vitest.mock("../utils/timeout-config", () => ({
@@ -149,7 +150,7 @@ describe("OpenAiHandler", () => {
 			})
 
 			const stream = handler.createMessage(systemPrompt, messages)
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
@@ -199,7 +200,7 @@ describe("OpenAiHandler", () => {
 			})
 
 			const stream = handler.createMessage(systemPrompt, messages)
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
@@ -216,7 +217,7 @@ describe("OpenAiHandler", () => {
 
 		it("should handle streaming responses", async () => {
 			const stream = handler.createMessage(systemPrompt, messages)
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
@@ -239,7 +240,7 @@ describe("OpenAiHandler", () => {
 				},
 			}))
 
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			for await (const chunk of handler.createMessage(systemPrompt, messages)) {
 				chunks.push(chunk)
 			}
@@ -258,7 +259,7 @@ describe("OpenAiHandler", () => {
 				},
 			}))
 
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			for await (const chunk of handler.createMessage(systemPrompt, messages)) {
 				chunks.push(chunk)
 			}
@@ -287,7 +288,7 @@ describe("OpenAiHandler", () => {
 				},
 			}))
 
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 
 			for await (const chunk of handler.createMessage(systemPrompt, messages)) {
 				chunks.push(chunk)
@@ -343,7 +344,7 @@ describe("OpenAiHandler", () => {
 			})
 
 			const stream = handler.createMessage(systemPrompt, messages)
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
@@ -414,7 +415,7 @@ describe("OpenAiHandler", () => {
 			})
 
 			const stream = handler.createMessage(systemPrompt, messages)
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
@@ -652,7 +653,7 @@ describe("OpenAiHandler", () => {
 				}))
 
 				const stream = handler.createMessage(systemPrompt, messages)
-				const chunks: any[] = []
+				const chunks: ApiStreamChunk[] = []
 				for await (const chunk of stream) {
 					chunks.push(chunk)
 				}
@@ -676,7 +677,7 @@ describe("OpenAiHandler", () => {
 				}))
 
 				const stream = handler.createMessage(systemPrompt, messages)
-				const chunks: any[] = []
+				const chunks: ApiStreamChunk[] = []
 				for await (const chunk of stream) {
 					chunks.push(chunk)
 				}
@@ -713,7 +714,7 @@ describe("OpenAiHandler", () => {
 				}))
 
 				const stream = handler.createMessage(systemPrompt, messages)
-				const chunks: any[] = []
+				const chunks: ApiStreamChunk[] = []
 				for await (const chunk of stream) {
 					chunks.push(chunk)
 				}
@@ -755,7 +756,7 @@ describe("OpenAiHandler", () => {
 				}))
 
 				const stream = handler.createMessage(systemPrompt, messages)
-				const chunks: any[] = []
+				const chunks: ApiStreamChunk[] = []
 				for await (const chunk of stream) {
 					chunks.push(chunk)
 				}
@@ -793,7 +794,7 @@ describe("OpenAiHandler", () => {
 				}))
 
 				const stream = handler.createMessage(systemPrompt, messages)
-				const chunks: any[] = []
+				const chunks: ApiStreamChunk[] = []
 				for await (const chunk of stream) {
 					chunks.push(chunk)
 				}
@@ -824,7 +825,7 @@ describe("OpenAiHandler", () => {
 				{
 					role: "assistant",
 					content: [
-						{ type: "reasoning", text: "I should use the read_file tool.", summary: [] } as any,
+						{ type: "reasoning", text: "I should use the read_file tool.", summary: [] } as unknown as Anthropic.ContentBlock,
 						{ type: "tool_use", id: "call_001", name: "read_file", input: { path: "README.md" } },
 					],
 				},
@@ -839,8 +840,11 @@ describe("OpenAiHandler", () => {
 			}
 
 			expect(mockCreate).toHaveBeenCalled()
-			const sentMessages: any[] = mockCreate.mock.calls[0][0].messages
-			const assistantMsg = sentMessages.find((m: any) => m.role === "assistant" && m.tool_calls?.length)
+			const sentMessages: Array<{ role: string; tool_calls?: unknown[]; reasoning_content?: string }> =
+				mockCreate.mock.calls[0][0].messages
+			const assistantMsg = sentMessages.find(
+				(m) => m.role === "assistant" && m.tool_calls && m.tool_calls.length > 0,
+			)
 			expect(assistantMsg).toBeDefined()
 			expect(assistantMsg.reasoning_content).toBe("I should use the read_file tool.")
 		})
@@ -874,7 +878,7 @@ describe("OpenAiHandler", () => {
 		it("should handle rate limiting", async () => {
 			const rateLimitError = new Error("Rate limit exceeded")
 			rateLimitError.name = "Error"
-			;(rateLimitError as any).status = 429
+			;(rateLimitError as { status: number }).status = 429
 			mockCreate.mockRejectedValueOnce(rateLimitError)
 
 			const stream = handler.createMessage("system prompt", testMessages)
@@ -965,7 +969,7 @@ describe("OpenAiHandler", () => {
 			]
 
 			const stream = azureHandler.createMessage(systemPrompt, messages)
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
@@ -1012,7 +1016,7 @@ describe("OpenAiHandler", () => {
 			]
 
 			const stream = azureHandler.createMessage(systemPrompt, messages)
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
@@ -1133,7 +1137,7 @@ describe("OpenAiHandler", () => {
 			]
 
 			const stream = o3Handler.createMessage(systemPrompt, messages)
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
@@ -1196,7 +1200,7 @@ describe("OpenAiHandler", () => {
 			})
 
 			const stream = o3Handler.createMessage("system", [])
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
@@ -1260,7 +1264,7 @@ describe("OpenAiHandler", () => {
 			})
 
 			const stream = o3Handler.createMessage("system", [])
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
@@ -1292,7 +1296,7 @@ describe("OpenAiHandler", () => {
 			]
 
 			const stream = o3Handler.createMessage(systemPrompt, messages)
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
@@ -1336,7 +1340,7 @@ describe("OpenAiHandler", () => {
 			]
 
 			const stream = o3Handler.createMessage(systemPrompt, messages)
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
@@ -1398,7 +1402,7 @@ describe("OpenAiHandler", () => {
 			})
 
 			const stream = o3Handler.createMessage("system", [])
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
@@ -1513,7 +1517,7 @@ describe("OpenAiHandler", () => {
 			}))
 
 			const stream = handler.createMessage("system", [])
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
@@ -1552,7 +1556,7 @@ describe("OpenAiHandler", () => {
 			}))
 
 			const stream = noPricingHandler.createMessage("system", [])
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
@@ -1595,7 +1599,7 @@ describe("OpenAiHandler", () => {
 			}))
 
 			const stream = cacheHandler.createMessage("system", [])
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
