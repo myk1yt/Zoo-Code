@@ -1319,9 +1319,14 @@
 			"count": 3
 		}
 	},
+	"integrations/terminal/__tests__/ShellResolver.spec.ts": {
+		"@typescript-eslint/no-explicit-any": {
+			"count": 4
+		}
+	},
 	"integrations/terminal/__tests__/TerminalProfile.spec.ts": {
 		"@typescript-eslint/no-explicit-any": {
-			"count": 35
+			"count": 39
 		}
 	},
 	"integrations/terminal/__tests__/TerminalRegistry.spec.ts": {
