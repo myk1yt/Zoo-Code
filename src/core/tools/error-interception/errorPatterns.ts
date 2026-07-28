@@ -722,13 +722,13 @@ export const ERROR_PATTERNS: readonly ErrorPattern[] = [
 ]
 
 /** Maximum length of a single NEXT suggestion in characters. */
-export const NEXT_ITEM_CHAR_LIMIT = 160
+const NEXT_ITEM_CHAR_LIMIT = 160
 
 /** Maximum number of NEXT suggestions in a guidance payload. */
-export const NEXT_ITEM_COUNT_LIMIT = 3
+const NEXT_ITEM_COUNT_LIMIT = 3
 
 /** Hard UTF-8 byte limit for the encoded model-facing JSON payload. */
-export const MODEL_PAYLOAD_BYTE_LIMIT = 1024
+const MODEL_PAYLOAD_BYTE_LIMIT = 1024
 
 /** Stable payload version. */
-export const GUIDANCE_VERSION = 1
+const GUIDANCE_VERSION = 1
