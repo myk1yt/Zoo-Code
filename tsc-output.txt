@@ -1,0 +1,3 @@
+﻿api/providers/__tests__/openai.spec.ts(849,11): error TS18048: 'assistantMsg' is possibly 'undefined'.
+api/providers/__tests__/openai.spec.ts(881,6): error TS2352: Conversion of type 'Error' to type '{ status: number; }' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Property 'status' is missing in type 'Error' but required in type '{ status: number; }'.
