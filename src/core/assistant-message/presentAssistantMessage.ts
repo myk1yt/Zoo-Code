@@ -308,10 +308,7 @@ export async function presentAssistantMessage(cline: Task) {
 					disposition: "correct_once",
 				})
 
-				pushToolResult({
-					type: "text",
-					text: structuredErrorContent,
-				})
+				pushToolResult(structuredErrorContent)
 
 				await cline.say(
 					"error",
@@ -645,10 +642,7 @@ export async function presentAssistantMessage(cline: Task) {
 					disposition: "correct_once",
 				})
 
-				pushToolResult({
-					type: "text",
-					text: structuredErrorContent,
-				})
+				pushToolResult(structuredErrorContent)
 
 				await cline.say(
 					"error",
