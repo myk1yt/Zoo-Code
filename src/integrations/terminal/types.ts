@@ -1,5 +1,7 @@
 import EventEmitter from "events"
 
+import type { TerminalLifecycle } from "./TerminalLifecycle"
+
 export type RooTerminalProvider = "vscode" | "execa"
 
 export interface RooTerminal {
@@ -10,7 +12,7 @@ export interface RooTerminal {
 	running: boolean
 	taskId?: string
 	process?: RooTerminalProcess
-	lifecycle: any
+	lifecycle?: TerminalLifecycle
 	getCurrentWorkingDirectory(): string
 	isClosed: () => boolean
 	runCommand: (command: string, callbacks: RooTerminalCallbacks) => RooTerminalProcessResultPromise
@@ -23,7 +25,7 @@ export interface RooTerminal {
 	getUnretrievedOutput(): string
 	getLastCommand(): string
 	cleanCompletedProcessQueue(): void
-	canReuse(options: {
+	canReuse?(options: {
 		cwd: string
 		reuseKey: string
 		hasProcess: boolean
@@ -130,7 +132,7 @@ export class ShellIntegrationError extends TerminalExecutionError {
 		message: string,
 		commandSubmitted: boolean,
 		code: TerminalErrorCode = "SI_ACTIVATION_TIMEOUT",
-		options?: Omit<ShellIntegrationErrorDetails, "message" | "commandSubscriber" | "code">,
+		options?: Omit<ShellIntegrationErrorDetails, "message" | "commandSubmitted" | "code">,
 	) {
 		const phase = options?.phase ?? "prepare"
 		const provider = options?.provider ?? "vscode"
