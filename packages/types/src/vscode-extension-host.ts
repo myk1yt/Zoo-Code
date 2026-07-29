@@ -103,6 +103,7 @@ export interface ExtensionMessage {
 		| "rules"
 		| "fileContent"
 		| "rooHistoryImportProgress"
+		| "usageStatsChanged"
 	text?: string
 	/** For fileContent: { path, content, error? } */
 	fileContent?: { path: string; content: string | null; error?: string }
