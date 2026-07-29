@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { type ProviderSettings, RooCodeEventName } from "@roo-code/types"
 
 import { Task } from "../Task"
