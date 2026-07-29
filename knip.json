@@ -8,6 +8,7 @@
 		"src/integrations/terminal/shell/CommandEnvironmentService.ts"
 	],
 	"ignoreDependencies": ["lint-staged"],
+	"ignoreBinaries": ["playwright"],
 	"ignoreExportsUsedInFile": true,
 	"playwright": false,
 	"playwright-ct": false,
