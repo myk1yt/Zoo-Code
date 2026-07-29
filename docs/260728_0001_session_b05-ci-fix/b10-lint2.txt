@@ -1,0 +1,45 @@
+﻿ WARN  Unsupported engine: wanted: {"node":"22.23.1"} (current: {"node":"v24.16.0","pnpm":"10.8.1"})
+
+> roo-code@ lint C:\Users\k1yt\OneDrive\Projects\ZooCode
+> turbo lint --log-order grouped --output-logs new-only
+
+node.exe : • turbo 2.10.0
+At C:\Users\k1yt\AppData\Roaming\npm\pnpm.ps1:24 char:5
++     & "node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs" $args
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (• turbo 2.10.0:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+   • Packages in scope: @roo-code/build, @roo-code/cli, @roo-code/cloud, @roo-code/config-eslint, @roo-code/config-typescript, @roo-code/core, @roo-code/ipc, @roo-code/telemetry, @roo-code/types, @roo-code/vscode-e2e, @roo-code/vscode-nightly, @roo-code/vscode-shim, @roo-code/vscode-webview, zoo-code
+   • Running lint in 14 packages
+   • Remote caching disabled
+
+@roo-code/vscode-e2e:lint: cache hit, suppressing logs 36e85c4561e298a4
+@roo-code/ipc:lint: cache hit, suppressing logs a84ccfa38e133e82
+@roo-code/cloud:lint: cache hit, suppressing logs 0146ba0177138eef
+@roo-code/types:lint: cache hit, suppressing logs fdc24fe3169105b1
+@roo-code/build:lint: cache hit, suppressing logs e1bed052f67e4c96
+@roo-code/core:lint: cache hit, suppressing logs 5011b08cb9c28a35
+@roo-code/telemetry:lint: cache hit, suppressing logs 33e7bfd697057ef0
+@roo-code/vscode-shim:lint: cache hit, suppressing logs 9e8cb359efb7be17
+@roo-code/cli:lint: cache hit, suppressing logs caaf8c91fc7342b5
+@roo-code/vscode-webview:lint: cache hit, suppressing logs e8aeb03a983889f0
+zoo-code:lint: cache miss, executing fe7444f0ae6781fb
+zoo-code:lint:  WARN  Unsupported engine: wanted: {"node":"22.23.1"} (current: {"node":"v24.16.0","pnpm":"10.8.1"})
+zoo-code:lint: 
+zoo-code:lint: > zoo-code@3.72.0 lint C:\Users\k1yt\OneDrive\Projects\ZooCode\src
+zoo-code:lint: > eslint . --ext=ts --max-warnings=0
+zoo-code:lint: 
+zoo-code:lint: There are suppressions left that do not occur anymore. Consider re-running the command with `--prune-suppressions`.
+zoo-code:lint:  ELIFECYCLE  Command failed with exit code 2.
+ ERROR  zoo-code#lint: command (C:\Users\k1yt\OneDrive\Projects\ZooCode\src) C:\Users\k1yt\AppData\Roaming\npm\pnpm.cmd
+ run lint exited (2)
+
+ Tasks:    10 successful, 11 total
+Cached:    10 cached, 11 total
+  Time:    33.57s 
+Failed:    zoo-code#lint
+
+ ERROR  run failed: command  exited (2)
+ ELIFECYCLE  Command failed with exit code 2.

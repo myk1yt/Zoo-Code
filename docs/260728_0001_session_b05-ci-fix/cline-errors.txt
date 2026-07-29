@@ -1,0 +1,188 @@
+﻿
+> zoo-code:lint: C:\Users\k1yt\OneDrive\Projects\ZooCode\src\core\webview\ClineProvider.ts
+  zoo-code:lint:    148:2  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:    234:3  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:    731:3  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:    868:3  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:    936:6  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:    947:6  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   2145:3  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   2161:3  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   2178:3  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   2198:4  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   2209:4  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3057:6  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3069:4  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint: 
+  zoo-code:lint: C:\Users\k1yt\OneDrive\Projects\ZooCode\src\core\webview\webviewMessageHandler.ts
+  zoo-code:lint:    566:4  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:    567:4  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:    569:4  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:    576:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:    633:4  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:    789:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:    815:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:    829:4  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:    832:4  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:    835:4  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:    891:4  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   1248:6  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   1257:4  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   1287:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   1300:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   1304:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   1332:6  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   1344:4  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   1360:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   1367:4  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   1370:4  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   1377:6  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   1405:4  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   1410:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   1419:6  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   1428:6  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   1435:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   1438:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   1446:4  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   1576:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   1603:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   1740:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   1823:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   2228:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   2404:8  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   2414:8  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   2423:7  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   2435:6  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   2494:7  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   2504:7  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   2515:6  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   2526:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   2540:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   2618:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   2625:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3028:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3053:4  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3073:4  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3091:6  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3113:7  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3118:9  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3136:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3156:6  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3160:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3190:7  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3193:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3209:6  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3219:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3222:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3271:6  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3279:6  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint: There are suppressions left that do not occur anymore. Consider re-running the command with `--prune-s
+uppressions`.
+  zoo-code:lint:   3297:6  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3311:6  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3328:6  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3444:7  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3574:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3698:6  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3709:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3716:5  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint:   3931:7  error  Promises must be awaited, end with a call to .catch, end with a call to .then with a 
+rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  zoo-code:lint: 
+  zoo-code:lint: ✖ 83 problems (83 errors, 0 warnings)
+  zoo-code:lint: 
+  zoo-code:lint:  ELIFECYCLE  Command failed with exit code 2.
+   ERROR  zoo-code#lint: command (C:\Users\k1yt\OneDrive\Projects\ZooCode\src) C:\Users\k1yt\AppData\Roaming\npm\pnpm.c
+md run lint exited (2)
+  
+   Tasks:    10 successful, 11 total
+  Cached:    10 cached, 11 total
+    Time:    29.945s 
+  Failed:    zoo-code#lint
+  
+   ERROR  run failed: command  exited (2)
+   ELIFECYCLE  Command failed with exit code 2.
+
+
