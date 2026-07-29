@@ -21,6 +21,11 @@ export const mimoModels = {
 		supportsImages: false, // Pro series is text-only
 		supportsPromptCache: false,
 		preserveReasoning: true,
+		supportsTemperature: true,
+		defaultTemperature: 1.0, // MiMo forces temp=1.0 when thinking mode is enabled
+		supportsMaxTokens: true,
+		supportsReasoningEffort: ["none", "minimal", "low", "medium", "high"],
+		supportsReasoningBudget: false,
 		inputPrice: 1.0, // $1.00/1M tokens (cache miss, ≤256K)
 		outputPrice: 3.0, // $3.00/1M tokens (≤256K)
 		cacheReadsPrice: 0.2, // $0.20/1M tokens (cache hit, ≤256K)
@@ -31,9 +36,11 @@ export const mimoModels = {
 			inputPriceMultiplier: 2,
 			outputPriceMultiplier: 2,
 			cacheReadsPriceMultiplier: 2,
+			appliesToServiceTiers: ["default", "flex", "priority"],
 		},
 		description:
 			"MiMo V2.5 Pro - Xiaomi's flagship reasoning model with 1M context, deep thinking, tool calling, and structured output.",
+		displayName: "MiMo V2.5 Pro",
 	},
 	"mimo-v2.5": {
 		maxTokens: 131_072,
@@ -41,6 +48,11 @@ export const mimoModels = {
 		supportsImages: true, // Full-modal: text, image, audio, video input
 		supportsPromptCache: false,
 		preserveReasoning: true,
+		supportsTemperature: true,
+		defaultTemperature: 1.0, // MiMo forces temp=1.0 when thinking mode is enabled
+		supportsMaxTokens: true,
+		supportsReasoningEffort: ["none", "minimal", "low", "medium", "high"],
+		supportsReasoningBudget: false,
 		inputPrice: 0.4, // $0.40/1M tokens (cache miss, ≤256K)
 		outputPrice: 2.0, // $2.00/1M tokens (≤256K)
 		cacheReadsPrice: 0.08, // $0.08/1M tokens (cache hit, ≤256K)
@@ -51,9 +63,11 @@ export const mimoModels = {
 			inputPriceMultiplier: 2,
 			outputPriceMultiplier: 2,
 			cacheReadsPriceMultiplier: 2,
+			appliesToServiceTiers: ["default", "flex", "priority"],
 		},
 		description:
 			"MiMo V2.5 - Full-modal understanding model (text, image, audio, video) with 1M context, deep thinking, tool calling, and structured output.",
+		displayName: "MiMo V2.5",
 	},
 } as const satisfies Record<string, ModelInfo>
 

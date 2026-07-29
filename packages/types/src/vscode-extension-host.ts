@@ -18,6 +18,8 @@ import type { SkillMetadata } from "./skills.js"
 import type { RuleMetadata } from "./rules.js"
 import type { TelemetrySetting } from "./telemetry.js"
 import type { WorktreeIncludeStatus } from "./worktree.js"
+import type { UsageEventV1 } from "./usage-stats.js"
+import type { StatsQuery, StatsSnapshot } from "./usage-stats.js"
 
 /**
  * ExtensionMessage
@@ -404,7 +406,13 @@ export type ExtensionState = Pick<
 	zooCodeBaseUrl?: string
 	deviceName?: string
 	debug?: boolean
-
+	
+	// Usage stats state
+	usageStatsSnapshot?: StatsSnapshot
+	usageStatsQuery?: StatsQuery
+	clearUsageStatsResult?: { success: boolean; error?: string }
+	exportUsageStatsResult?: { format: "json" | "csv"; data: string; error?: string }
+	
 	/**
 	 * Platform info for conditional feature support (e.g. semble binary availability).
 	 */
@@ -536,6 +544,10 @@ export interface WebviewMessage {
 		| "codebaseIndexEnabled"
 		| "telemetrySetting"
 		| "searchFiles"
+		| "getUsageStatsResponse"
+		| "clearUsageStatsResponse"
+		| "exportUsageStatsResponse"
+		| "usageStatsChanged"
 		| "toggleApiConfigPin"
 		| "hasOpenedModeSelector"
 		| "lockApiConfigAcrossModes"
