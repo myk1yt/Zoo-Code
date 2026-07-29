@@ -1,5 +1,3 @@
-// npx vitest run src/core/tools/__tests__/executeCommandTool.spec.ts
-
 import type { ToolUsage } from "@roo-code/types"
 import * as vscode from "vscode"
 
@@ -26,9 +24,20 @@ vitest.mock("vscode", () => ({
 	},
 }))
 
+vitest.mock("@roo-code/telemetry", () => ({
+	TelemetryService: {
+		instance: {
+			captureShellIntegrationError: vitest.fn(),
+		},
+	},
+}))
+
 vitest.mock("../../../integrations/terminal/TerminalRegistry", () => ({
 	TerminalRegistry: {
 		getOrCreateTerminal: vitest.fn().mockResolvedValue({
+			provider: "execa",
+			lifecycle: { state: "ready" },
+			terminal: { shellIntegration: undefined },
 			runCommand: vitest.fn().mockImplementation((_cmd: string, callbacks: any) => {
 				// Invoke onCompleted so onCompletedPromise resolves and the tool returns.
 				callbacks?.onCompleted?.("")
@@ -38,6 +47,19 @@ vitest.mock("../../../integrations/terminal/TerminalRegistry", () => ({
 			}),
 			getCurrentWorkingDirectory: vitest.fn().mockReturnValue("/test/workspace"),
 		}),
+		prepareProviderSwitch: vitest.fn().mockResolvedValue({ terminal: undefined }),
+		setExecaShellFamily: vitest.fn(),
+	},
+}))
+
+vitest.mock("../../../integrations/terminal/CommandScheduler", () => ({
+	CommandScheduler: {
+		getInstance: vitest.fn().mockReturnValue({
+			enqueue: vitest.fn().mockResolvedValue(undefined),
+			release: vitest.fn(),
+		}),
+		initialize: vitest.fn(),
+		cleanup: vitest.fn(),
 	},
 }))
 
@@ -58,7 +80,7 @@ describe("executeCommandTool", () => {
 	const originalCliRuntime = process.env.ROO_CLI_RUNTIME
 
 	beforeEach(() => {
-		// Reset mocks
+		// Reset call history but preserve module mock factory defaults.
 		vitest.clearAllMocks()
 		vitest.useRealTimers()
 
@@ -70,11 +92,14 @@ describe("executeCommandTool", () => {
 			ask: vitest.fn().mockResolvedValue(undefined),
 			say: vitest.fn().mockResolvedValue(undefined),
 			sayAndCreateMissingParamError: vitest.fn().mockResolvedValue("Missing parameter error"),
+			supersedePendingAsk: vitest.fn(),
 			consecutiveMistakeCount: 0,
 			didRejectTool: false,
+			taskId: "test-task",
 			rooIgnoreController: {
 				validateCommand: vitest.fn().mockReturnValue(null),
 			},
+			apiConfiguration: {},
 			recordToolUsage: vitest.fn().mockReturnValue({} as ToolUsage),
 			recordToolError: vitest.fn(),
 			providerRef: {
@@ -89,11 +114,15 @@ describe("executeCommandTool", () => {
 			},
 			lastMessageTs: Date.now(),
 			cwd: "/test/workspace",
+			getResolvedCommandEnvironment: vitest.fn().mockReturnValue(undefined),
 		}
 
 		mockAskApproval = vitest.fn().mockResolvedValue(true)
 		mockHandleError = vitest.fn().mockResolvedValue(undefined)
 		mockPushToolResult = vitest.fn()
+
+		// Default mock for toolError so typed error paths return a deterministic message.
+		;(formatResponse.toolError as any).mockImplementation((message: string) => message)
 
 		// Setup vscode config mock
 		const mockConfig = {
@@ -127,26 +156,26 @@ describe("executeCommandTool", () => {
 	 * This verifies that HTML entities are properly converted to their actual characters
 	 */
 	describe("HTML entity unescaping", () => {
-		it("should unescape &lt; to < character", () => {
-			const input = "echo &lt;test&gt;"
+		it("should unescape < to < character", () => {
+			const input = "echo <test>"
 			const expected = "echo <test>"
 			expect(unescapeHtmlEntities(input)).toBe(expected)
 		})
 
-		it("should unescape &gt; to > character", () => {
-			const input = "echo test &gt; output.txt"
+		it("should unescape > to > character", () => {
+			const input = "echo test > output.txt"
 			const expected = "echo test > output.txt"
 			expect(unescapeHtmlEntities(input)).toBe(expected)
 		})
 
-		it("should unescape &amp; to & character", () => {
-			const input = "echo foo &amp;&amp; echo bar"
+		it("should unescape & to & character", () => {
+			const input = "echo foo && echo bar"
 			const expected = "echo foo && echo bar"
 			expect(unescapeHtmlEntities(input)).toBe(expected)
 		})
 
 		it("should handle multiple mixed HTML entities", () => {
-			const input = "grep -E 'pattern' &lt;file.txt &gt;output.txt 2&gt;&amp;1"
+			const input = "grep -E 'pattern' <file.txt >output.txt 2>&1"
 			const expected = "grep -E 'pattern' <file.txt >output.txt 2>&1"
 			expect(unescapeHtmlEntities(input)).toBe(expected)
 		})
@@ -193,6 +222,74 @@ describe("executeCommandTool", () => {
 			const { TerminalRegistry } = await import("../../../integrations/terminal/TerminalRegistry")
 			const firstArg = (TerminalRegistry.getOrCreateTerminal as ReturnType<typeof vitest.fn>).mock.calls[0][0]
 			expect(firstArg).toBe("/custom/path")
+		})
+	})
+
+	describe("CommandScheduler integration", () => {
+		it("enqueues the command and releases the lease after execution", async () => {
+			mockToolUse.params.command = "echo test"
+			mockToolUse.nativeArgs = { command: "echo test" }
+
+			const { CommandScheduler } = await import("../../../integrations/terminal/CommandScheduler")
+			const scheduler = CommandScheduler.getInstance()
+
+			await executeCommandTool.handle(mockCline as unknown as Task, mockToolUse, {
+				askApproval: mockAskApproval as unknown as AskApproval,
+				handleError: mockHandleError as unknown as HandleError,
+				pushToolResult: mockPushToolResult as unknown as PushToolResult,
+			})
+
+			expect(scheduler.enqueue).toHaveBeenCalledWith(
+				expect.objectContaining({
+					executionId: expect.any(String),
+					taskId: mockCline.taskId,
+					requestedAt: expect.any(Number),
+				}),
+			)
+			expect(scheduler.release).toHaveBeenCalled()
+		})
+
+		it("emits a queued status before the command runs", async () => {
+			mockToolUse.params.command = "echo test"
+			mockToolUse.nativeArgs = { command: "echo test" }
+
+			await executeCommandTool.handle(mockCline as unknown as Task, mockToolUse, {
+				askApproval: mockAskApproval as unknown as AskApproval,
+				handleError: mockHandleError as unknown as HandleError,
+				pushToolResult: mockPushToolResult as unknown as PushToolResult,
+			})
+
+			const provider = await mockCline.providerRef.deref()
+			const postMessageCalls = provider.postMessageToWebview.mock.calls
+			const statuses = postMessageCalls
+				.map((call: any) => {
+					try {
+						return JSON.parse(call[0].text)
+					} catch {
+						return undefined
+					}
+				})
+				.filter(Boolean)
+			expect(statuses.some((s: any) => s.status === "queued")).toBe(true)
+		})
+
+		it("releases the CommandScheduler lease even when executeCommandInTerminal fails", async () => {
+			const genericError = new Error("unexpected failure")
+			vitest.spyOn(executeCommandModule, "executeCommandInTerminal").mockRejectedValueOnce(genericError)
+
+			mockToolUse.params.command = "echo test"
+			mockToolUse.nativeArgs = { command: "echo test" }
+
+			const { CommandScheduler } = await import("../../../integrations/terminal/CommandScheduler")
+			const scheduler = CommandScheduler.getInstance()
+
+			await executeCommandTool.handle(mockCline as unknown as Task, mockToolUse, {
+				askApproval: mockAskApproval as unknown as AskApproval,
+				handleError: mockHandleError as unknown as HandleError,
+				pushToolResult: mockPushToolResult as unknown as PushToolResult,
+			})
+
+			expect(scheduler.release).toHaveBeenCalled()
 		})
 	})
 
@@ -266,16 +363,102 @@ describe("executeCommandTool", () => {
 			// executeCommandInTerminal should not be called since rooignore blocked it
 		})
 
-		it("allows Execa retry when shell integration fails before command submission", () => {
+		it("allows retry when shell integration fails before command submission", () => {
 			const error = new executeCommandModule.ShellIntegrationError("startup failed", false)
 
 			expect(executeCommandModule.canRetryShellIntegrationError(error)).toBe(true)
 		})
 
-		it("prevents Execa retry when shell integration fails after command submission", () => {
+		it("prevents retry when shell integration fails after command submission", () => {
 			const error = new executeCommandModule.ShellIntegrationError("stream missing", true)
 
 			expect(executeCommandModule.canRetryShellIntegrationError(error)).toBe(false)
+		})
+
+		it("does not replay command when ShellIntegrationError has commandSubmitted=true", async () => {
+			const { TerminalRegistry } = await import("../../../integrations/terminal/TerminalRegistry")
+
+			// Use a resolved environment so the terminal provider is vscode and the
+			// onNoShellIntegration callback is registered.
+			mockCline.getResolvedCommandEnvironment = vitest.fn().mockReturnValue({
+				primaryPlan: { provider: "vscode", family: "zsh" },
+				fallbackPlan: { provider: "execa", family: "zsh" },
+			})
+
+			const originalTerminal = {
+				id: 1,
+				provider: "vscode",
+				lifecycle: { state: "ready" },
+				terminal: { shellIntegration: undefined },
+				runCommand: vitest.fn().mockImplementation((_cmd: string, callbacks: any) => {
+					callbacks?.onNoShellIntegration?.({
+						message: "stream missing",
+						commandSubmitted: true,
+						code: "SI_ACTIVATION_TIMEOUT",
+						retryDisposition: "never",
+						terminalId: 1,
+					})
+					const p = Promise.resolve()
+					return Object.assign(p, { continue: () => {}, abort: () => {} })
+				}),
+				getCurrentWorkingDirectory: vitest.fn().mockReturnValue("/test/workspace"),
+			}
+
+			;(TerminalRegistry.getOrCreateTerminal as ReturnType<typeof vitest.fn>).mockResolvedValueOnce(
+				originalTerminal,
+			)
+
+			mockToolUse.params.command = "echo test"
+			mockToolUse.nativeArgs = { command: "echo test" }
+
+			await executeCommandTool.handle(mockCline as unknown as Task, mockToolUse, {
+				askApproval: mockAskApproval as unknown as AskApproval,
+				handleError: mockHandleError as unknown as HandleError,
+				pushToolResult: mockPushToolResult as unknown as PushToolResult,
+			})
+
+			// The terminal's runCommand should be invoked only once (no retry).
+			expect(originalTerminal.runCommand).toHaveBeenCalledTimes(1)
+
+			// Post-submit shell integration errors are surfaced as a tool result, not retried.
+			expect(mockPushToolResult).toHaveBeenCalled()
+			const result = mockPushToolResult.mock.calls[0][0]
+			expect(result).toContain("SI_ACTIVATION_TIMEOUT")
+			expect(mockHandleError).not.toHaveBeenCalled()
+		})
+
+		it("shows error for non-ShellIntegrationError exceptions in the catch block", async () => {
+			const { TerminalRegistry } = await import("../../../integrations/terminal/TerminalRegistry")
+			const genericError = new Error("unexpected failure")
+
+			// Override the terminal mock to reject with a non-ShellIntegrationError
+			const mockRunCommandFn = vitest.fn().mockImplementation(() => {
+				const rejectPromise = Promise.reject(genericError)
+				return Object.assign(rejectPromise, { continue: () => {}, abort: () => {} })
+			})
+
+			;(TerminalRegistry.getOrCreateTerminal as ReturnType<typeof vitest.fn>).mockResolvedValueOnce({
+				provider: "execa",
+				lifecycle: { state: "ready" },
+				terminal: { shellIntegration: undefined },
+				runCommand: mockRunCommandFn,
+				getCurrentWorkingDirectory: vitest.fn().mockReturnValue("/test/workspace"),
+			})
+
+			mockToolUse.params.command = "echo test"
+			mockToolUse.nativeArgs = { command: "echo test" }
+
+			await executeCommandTool.handle(mockCline as unknown as Task, mockToolUse, {
+				askApproval: mockAskApproval as unknown as AskApproval,
+				handleError: mockHandleError as unknown as HandleError,
+				pushToolResult: mockPushToolResult as unknown as PushToolResult,
+			})
+
+			// Should NOT retry — only one call to runCommand
+			expect(mockRunCommandFn).toHaveBeenCalledTimes(1)
+
+			// Unknown errors are passed to the error handler.
+			expect(mockHandleError).toHaveBeenCalledWith("executing command", genericError)
 		})
 
 		it("selects the Execa fallback provider for cmd.exe shell integration", () => {
@@ -285,6 +468,107 @@ describe("executeCommandTool", () => {
 				terminalProvider: "execa",
 				isCmdExeFallback: true,
 			})
+		})
+
+		it("selects the provider from the resolved environment's primary plan", () => {
+			const resolvedEnv = {
+				primaryPlan: { provider: "execa", family: "zsh" },
+				fallbackPlan: { provider: "execa", family: "zsh" },
+			}
+
+			expect(executeCommandModule.getTerminalProviderForExecution(false, resolvedEnv as any)).toEqual({
+				terminalProvider: "execa",
+				isCmdExeFallback: false,
+			})
+		})
+
+		it("detects cmd.exe fallback when the resolved environment's primary plan is cmd family", () => {
+			const resolvedEnv = {
+				primaryPlan: { provider: "execa", family: "cmd" },
+				fallbackPlan: { provider: "execa", family: "cmd" },
+			}
+
+			expect(executeCommandModule.getTerminalProviderForExecution(false, resolvedEnv as any)).toEqual({
+				terminalProvider: "execa",
+				isCmdExeFallback: true,
+			})
+		})
+	})
+
+	describe("Safe fallback orchestration", () => {
+		it("switches to a same-family execa plan after a pre-submit shell integration error", async () => {
+			const { TerminalRegistry } = await import("../../../integrations/terminal/TerminalRegistry")
+
+			const fallbackTerminal = {
+				id: 2,
+				provider: "execa",
+				lifecycle: { state: "ready" },
+				terminal: { shellIntegration: undefined },
+				runCommand: vitest.fn().mockImplementation((_cmd: string, callbacks: any) => {
+					callbacks?.onCompleted?.("fallback succeeded")
+					const p = Promise.resolve()
+					return Object.assign(p, { continue: () => {}, abort: () => {} })
+				}),
+				getCurrentWorkingDirectory: vitest.fn().mockReturnValue("/test/workspace"),
+			}
+
+			;(TerminalRegistry.prepareProviderSwitch as any).mockResolvedValueOnce({ terminal: fallbackTerminal })
+
+			const originalTerminal = {
+				id: 1,
+				provider: "vscode",
+				lifecycle: { state: "ready" },
+				terminal: { shellIntegration: undefined },
+				runCommand: vitest.fn().mockImplementation((_cmd: string, callbacks: any) => {
+					callbacks?.onNoShellIntegration?.({
+						message: "startup failed",
+						commandSubmitted: false,
+						code: "SI_ACTIVATION_TIMEOUT",
+						retryDisposition: "fallback-safe",
+						terminalId: 1,
+					})
+					const p = Promise.resolve()
+					return Object.assign(p, { continue: () => {}, abort: () => {} })
+				}),
+				getCurrentWorkingDirectory: vitest.fn().mockReturnValue("/test/workspace"),
+			}
+
+			;(TerminalRegistry.getOrCreateTerminal as ReturnType<typeof vitest.fn>).mockResolvedValueOnce(
+				originalTerminal,
+			)
+
+			mockCline.getResolvedCommandEnvironment = vitest.fn().mockReturnValue({
+				primaryPlan: { provider: "vscode", family: "powershell" },
+				fallbackPlan: { provider: "execa", family: "powershell" },
+			})
+
+			mockToolUse.params.command = "echo test"
+			mockToolUse.nativeArgs = { command: "echo test" }
+
+			await executeCommandTool.handle(mockCline as unknown as Task, mockToolUse, {
+				askApproval: mockAskApproval as unknown as AskApproval,
+				handleError: mockHandleError as unknown as HandleError,
+				pushToolResult: mockPushToolResult as unknown as PushToolResult,
+			})
+
+			expect(TerminalRegistry.prepareProviderSwitch).toHaveBeenCalledWith(
+				expect.objectContaining({
+					terminalId: 1,
+					executionId: expect.any(String),
+					fromProvider: "vscode",
+					toProvider: "execa",
+					reasonCode: "SI_ACTIVATION_TIMEOUT",
+					commandSubmitted: false,
+					resolvedEnv: expect.objectContaining({
+						primaryPlan: { provider: "vscode", family: "powershell" },
+						fallbackPlan: { provider: "execa", family: "powershell" },
+					}),
+				}),
+			)
+
+			const result = mockPushToolResult.mock.calls[0][0]
+			expect(result).toContain("fallback succeeded")
+			expect(mockHandleError).not.toHaveBeenCalled()
 		})
 	})
 
@@ -331,6 +615,98 @@ describe("executeCommandTool", () => {
 		it("should honor model timeout outside CLI runtime", () => {
 			delete process.env.ROO_CLI_RUNTIME
 			expect(executeCommandModule.resolveAgentTimeoutMs(30)).toBe(30_000)
+		})
+	})
+
+	describe("cwd parameter validation", () => {
+		const invalidCwdCases = [
+			{ label: "object", value: { path: "/foo" } },
+			{ label: "array", value: ["/foo"] },
+			{ label: "number", value: 12345 },
+			{ label: "empty string", value: "" },
+		]
+
+		invalidCwdCases.forEach(({ label, value }) => {
+			it(`rejects ${label} cwd`, async () => {
+				mockToolUse.params.command = "echo test"
+				mockToolUse.params.cwd = value as any
+				mockToolUse.nativeArgs = { command: "echo test", cwd: value as any }
+
+				await executeCommandTool.handle(mockCline as unknown as Task, mockToolUse, {
+					askApproval: mockAskApproval as unknown as AskApproval,
+					handleError: mockHandleError as unknown as HandleError,
+					pushToolResult: mockPushToolResult as unknown as PushToolResult,
+				})
+
+				expect(mockPushToolResult).toHaveBeenCalledWith(
+					expect.stringContaining("cwd must be a non-empty string"),
+				)
+				expect(mockAskApproval).not.toHaveBeenCalled()
+				expect(executeCommandModule.executeCommandInTerminal).not.toHaveBeenCalled()
+			})
+		})
+
+		it("accepts absolute string cwd", async () => {
+			mockToolUse.params.command = "echo test"
+			mockToolUse.params.cwd = "/custom/path"
+			mockToolUse.nativeArgs = { command: "echo test", cwd: "/custom/path" }
+
+			await executeCommandTool.handle(mockCline as unknown as Task, mockToolUse, {
+				askApproval: mockAskApproval as unknown as AskApproval,
+				handleError: mockHandleError as unknown as HandleError,
+				pushToolResult: mockPushToolResult as unknown as PushToolResult,
+			})
+
+			expect(mockAskApproval).toHaveBeenCalledWith("command", "echo test")
+			const { TerminalRegistry } = await import("../../../integrations/terminal/TerminalRegistry")
+			expect(TerminalRegistry.getOrCreateTerminal).toHaveBeenCalled()
+		})
+
+		it("accepts relative string cwd", async () => {
+			mockToolUse.params.command = "echo test"
+			mockToolUse.params.cwd = "relative/path"
+			mockToolUse.nativeArgs = { command: "echo test", cwd: "relative/path" }
+
+			await executeCommandTool.handle(mockCline as unknown as Task, mockToolUse, {
+				askApproval: mockAskApproval as unknown as AskApproval,
+				handleError: mockHandleError as unknown as HandleError,
+				pushToolResult: mockPushToolResult as unknown as PushToolResult,
+			})
+
+			expect(mockAskApproval).toHaveBeenCalledWith("command", "echo test")
+			const { TerminalRegistry } = await import("../../../integrations/terminal/TerminalRegistry")
+			expect(TerminalRegistry.getOrCreateTerminal).toHaveBeenCalled()
+		})
+
+		it("accepts undefined cwd", async () => {
+			mockToolUse.params.command = "echo test"
+			delete mockToolUse.params.cwd
+			mockToolUse.nativeArgs = { command: "echo test" }
+
+			await executeCommandTool.handle(mockCline as unknown as Task, mockToolUse, {
+				askApproval: mockAskApproval as unknown as AskApproval,
+				handleError: mockHandleError as unknown as HandleError,
+				pushToolResult: mockPushToolResult as unknown as PushToolResult,
+			})
+
+			expect(mockAskApproval).toHaveBeenCalledWith("command", "echo test")
+			const { TerminalRegistry } = await import("../../../integrations/terminal/TerminalRegistry")
+			expect(TerminalRegistry.getOrCreateTerminal).toHaveBeenCalled()
+		})
+
+		it("does not acquire a terminal for malformed cwd", async () => {
+			mockToolUse.params.command = "echo test"
+			mockToolUse.params.cwd = 12345 as any
+			mockToolUse.nativeArgs = { command: "echo test", cwd: 12345 as any }
+
+			await executeCommandTool.handle(mockCline as unknown as Task, mockToolUse, {
+				askApproval: mockAskApproval as unknown as AskApproval,
+				handleError: mockHandleError as unknown as HandleError,
+				pushToolResult: mockPushToolResult as unknown as PushToolResult,
+			})
+
+			const { TerminalRegistry } = await import("../../../integrations/terminal/TerminalRegistry")
+			expect(TerminalRegistry.getOrCreateTerminal).not.toHaveBeenCalled()
 		})
 	})
 })

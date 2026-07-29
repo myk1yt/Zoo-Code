@@ -83,6 +83,9 @@ import { CodeIndexManager } from "../../services/code-index/manager"
 import type { IndexProgressUpdate } from "../../services/code-index/interfaces/manager"
 import { MdmService } from "../../services/mdm/MdmService"
 import { SkillsManager } from "../../services/skills/SkillsManager"
+import { CommandEnvironmentService } from "../../integrations/terminal/shell/CommandEnvironmentService"
+import { ShellResolver } from "../../integrations/terminal/shell/ShellResolver"
+import { TerminalProfileResolver } from "../../integrations/terminal/shell/TerminalProfileResolver"
 
 import { fileExistsAtPath } from "../../utils/fs"
 import { setTtsEnabled, setTtsSpeed } from "../../utils/tts"
@@ -174,6 +177,7 @@ export class ClineProvider
 	private _workspaceTracker?: WorkspaceTracker // workSpaceTracker read-only for access outside this class
 	protected mcpHub?: McpHub // Change from private to protected
 	protected skillsManager?: SkillsManager
+	private commandEnvironmentService?: CommandEnvironmentService
 	private marketplaceManager: MarketplaceManager
 	private mdmService?: MdmService
 	private taskCreationCallback: (task: Task) => void
@@ -210,6 +214,26 @@ export class ClineProvider
 	public readonly latestAnnouncementId = "jul-2026-v3.72.0-moonshot-kimi-models-workflows" // v3.72.0 Moonshot/Kimi providers, new models, subtask/indexing improvements
 	public readonly providerSettingsManager: ProviderSettingsManager
 	public readonly customModesManager: CustomModesManager
+
+	/**
+	 * Returns the CommandEnvironmentService instance, lazily initializing it
+	 * on first access. The service resolves the shell environment for each
+	 * API request and provides the same snapshot to the system prompt, tool
+	 * descriptions, and runtime execution.
+	 */
+	public getCommandEnvironmentService(): CommandEnvironmentService | undefined {
+		if (!this.commandEnvironmentService) {
+			try {
+				const profileResolver = TerminalProfileResolver.forRuntime()
+				const resolver = ShellResolver.forRuntime(profileResolver)
+				this.commandEnvironmentService = new CommandEnvironmentService(resolver)
+			} catch (error) {
+				console.error("[ClineProvider] Failed to create CommandEnvironmentService:", error)
+				return undefined
+			}
+		}
+		return this.commandEnvironmentService
+	}
 
 	constructor(
 		readonly context: vscode.ExtensionContext,

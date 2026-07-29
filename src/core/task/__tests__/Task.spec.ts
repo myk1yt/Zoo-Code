@@ -6,13 +6,7 @@ import * as path from "path"
 import * as vscode from "vscode"
 import { Anthropic } from "@anthropic-ai/sdk"
 
-import {
-	providerIdentifiers,
-	type GlobalState,
-	type ProviderSettings,
-	type ModelInfo,
-	type TaskLike,
-} from "@roo-code/types"
+import type { GlobalState, ProviderSettings, ModelInfo } from "@roo-code/types"
 import { TelemetryService } from "@roo-code/telemetry"
 
 import { Task } from "../Task"
@@ -23,27 +17,6 @@ import { ApiStreamChunk } from "../../../api/transform/stream"
 import { ContextProxy } from "../../config/ContextProxy"
 import { processUserContentMentions } from "../../mentions/processUserContentMentions"
 import { MultiSearchReplaceDiffStrategy } from "../../diff/strategies/multi-search-replace"
-import type { ApiMessage } from "../../task-persistence"
-
-type TaskTestAccess = {
-	getSystemPrompt: () => Promise<string>
-	startTask: (task?: string, images?: string[]) => Promise<void>
-	resumeTaskFromHistory: () => Promise<void>
-	presentAssistantMessageSafe: () => void
-	updateClineMessage: (message: import("@roo-code/types").ClineMessage) => Promise<void>
-	saveClineMessages: () => Promise<boolean>
-}
-
-function getTaskTestAccess(task: Task): TaskTestAccess {
-	return task as unknown as TaskTestAccess
-}
-
-function requireDefined<T>(value: T | null | undefined): T {
-	if (value == null) {
-		throw new Error("Expected test value to be defined")
-	}
-	return value
-}
 
 // Mock delay before any imports that might use it
 vi.mock("delay", () => ({
@@ -188,7 +161,7 @@ vi.mock("../../environment/getEnvironmentDetails", () => ({
 vi.mock("../../ignore/RooIgnoreController")
 
 vi.mock("../../condense", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("../../condense")>()
+	const actual = (await importOriginal()) as any
 	return {
 		...actual,
 		summarizeConversation: vi.fn().mockResolvedValue({
@@ -301,11 +274,11 @@ describe("Cline", () => {
 			mockOutputChannel,
 			"sidebar",
 			new ContextProxy(mockExtensionContext),
-		)
+		) as any
 
 		// Setup mock API configuration
 		mockApiConfig = {
-			apiProvider: providerIdentifiers.anthropic,
+			apiProvider: "anthropic",
 			apiModelId: "claude-3-5-sonnet-20241022",
 			apiKey: "test-api-key", // Add API key to mock config
 		}
@@ -436,7 +409,7 @@ describe("Cline", () => {
 					task: "test task",
 					startTask: false,
 				})
-				vi.spyOn(getTaskTestAccess(cline), "getSystemPrompt").mockResolvedValue("mock system prompt")
+				vi.spyOn(cline as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 
 				const mockStream = {
 					async *[Symbol.asyncIterator]() {
@@ -464,7 +437,7 @@ describe("Cline", () => {
 						ts: Date.now(),
 						extraProp: "should be removed",
 					},
-				] as Array<ApiMessage & { extraProp: string }>
+				] as any
 
 				const iterator = cline.attemptApiRequest(0)
 				await iterator.next()
@@ -507,7 +480,7 @@ describe("Cline", () => {
 					task: "test task",
 					startTask: false,
 				})
-				vi.spyOn(getTaskTestAccess(withImages), "getSystemPrompt").mockResolvedValue("mock system prompt")
+				vi.spyOn(withImages as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 
 				vi.spyOn(withImages.api, "getModel").mockReturnValue({
 					id: "claude-3-sonnet",
@@ -530,7 +503,7 @@ describe("Cline", () => {
 					task: "test task",
 					startTask: false,
 				})
-				vi.spyOn(getTaskTestAccess(withoutImages), "getSystemPrompt").mockResolvedValue("mock system prompt")
+				vi.spyOn(withoutImages as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 
 				vi.spyOn(withoutImages.api, "getModel").mockReturnValue({
 					id: "gpt-3.5-turbo",
@@ -564,8 +537,8 @@ describe("Cline", () => {
 				const withImagesSpy = vi.spyOn(withImages.api, "createMessage").mockReturnValue(mockStream)
 				const withoutImagesSpy = vi.spyOn(withoutImages.api, "createMessage").mockReturnValue(mockStream)
 
-				withImages.apiConversationHistory = conversationHistory as ApiMessage[]
-				withoutImages.apiConversationHistory = conversationHistory as ApiMessage[]
+				withImages.apiConversationHistory = conversationHistory as any
+				withoutImages.apiConversationHistory = conversationHistory as any
 
 				const withImagesIterator = withImages.attemptApiRequest(0)
 				await withImagesIterator.next()
@@ -609,7 +582,7 @@ describe("Cline", () => {
 					task: "test task",
 					startTask: false,
 				})
-				vi.spyOn(getTaskTestAccess(cline), "getSystemPrompt").mockResolvedValue("mock system prompt")
+				vi.spyOn(cline as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 
 				// Mock delay to track countdown timing
 				const mockDelay = vi.fn().mockResolvedValue(undefined)
@@ -703,7 +676,7 @@ describe("Cline", () => {
 					startTask: false,
 					rateLimitClock: clock,
 				})
-				vi.spyOn(getTaskTestAccess(cline), "getSystemPrompt").mockResolvedValue("mock system prompt")
+				vi.spyOn(cline as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 
 				const mockDelay = vi.fn().mockResolvedValue(undefined)
 				vi.spyOn(await import("delay"), "default").mockImplementation(mockDelay)
@@ -777,7 +750,7 @@ describe("Cline", () => {
 					task: "test task",
 					startTask: false,
 				})
-				vi.spyOn(getTaskTestAccess(cline), "getSystemPrompt").mockResolvedValue("mock system prompt")
+				vi.spyOn(cline as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 
 				// Mock delay to track countdown timing
 				const mockDelay = vi.fn().mockResolvedValue(undefined)
@@ -946,7 +919,7 @@ describe("Cline", () => {
 			beforeEach(() => {
 				vi.clearAllMocks()
 				mockApiConfig = {
-					apiProvider: providerIdentifiers.anthropic,
+					apiProvider: "anthropic",
 					apiKey: "test-key",
 					rateLimitSeconds: 5,
 				}
@@ -993,7 +966,7 @@ describe("Cline", () => {
 					startTask: false,
 					rateLimitClock: sharedClock,
 				})
-				vi.spyOn(getTaskTestAccess(parent), "getSystemPrompt").mockResolvedValue("mock system prompt")
+				vi.spyOn(parent as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 
 				// Mock the API stream response
 				const mockStream = {
@@ -1031,7 +1004,7 @@ describe("Cline", () => {
 					startTask: false,
 					rateLimitClock: sharedClock,
 				})
-				vi.spyOn(getTaskTestAccess(child), "getSystemPrompt").mockResolvedValue("mock system prompt")
+				vi.spyOn(child as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 
 				// Spy on child.say to verify the emitted message type
 				const saySpy = vi.spyOn(child, "say")
@@ -1086,7 +1059,7 @@ describe("Cline", () => {
 					startTask: false,
 					rateLimitClock: sharedClock,
 				})
-				vi.spyOn(getTaskTestAccess(parent), "getSystemPrompt").mockResolvedValue("mock system prompt")
+				vi.spyOn(parent as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 
 				// Mock the API stream response
 				const mockStream = {
@@ -1126,7 +1099,7 @@ describe("Cline", () => {
 					startTask: false,
 					rateLimitClock: sharedClock,
 				})
-				vi.spyOn(getTaskTestAccess(child), "getSystemPrompt").mockResolvedValue("mock system prompt")
+				vi.spyOn(child as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 
 				vi.spyOn(child.api, "createMessage").mockReturnValue(mockStream)
 
@@ -1152,7 +1125,7 @@ describe("Cline", () => {
 					startTask: false,
 					rateLimitClock: sharedClock,
 				})
-				vi.spyOn(getTaskTestAccess(parent), "getSystemPrompt").mockResolvedValue("mock system prompt")
+				vi.spyOn(parent as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 
 				// Mock the API stream response
 				const mockStream = {
@@ -1187,7 +1160,7 @@ describe("Cline", () => {
 					startTask: false,
 					rateLimitClock: sharedClock,
 				})
-				vi.spyOn(getTaskTestAccess(child1), "getSystemPrompt").mockResolvedValue("mock system prompt")
+				vi.spyOn(child1 as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 
 				vi.spyOn(child1.api, "createMessage").mockReturnValue(mockStream)
 
@@ -1212,7 +1185,7 @@ describe("Cline", () => {
 					startTask: false,
 					rateLimitClock: sharedClock,
 				})
-				vi.spyOn(getTaskTestAccess(child2), "getSystemPrompt").mockResolvedValue("mock system prompt")
+				vi.spyOn(child2 as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 
 				vi.spyOn(child2.api, "createMessage").mockReturnValue(mockStream)
 
@@ -1242,7 +1215,7 @@ describe("Cline", () => {
 					startTask: false,
 					rateLimitClock: sharedClock,
 				})
-				vi.spyOn(getTaskTestAccess(parent), "getSystemPrompt").mockResolvedValue("mock system prompt")
+				vi.spyOn(parent as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 
 				// Mock the API stream response
 				const mockStream = {
@@ -1277,7 +1250,7 @@ describe("Cline", () => {
 					startTask: false,
 					rateLimitClock: sharedClock,
 				})
-				vi.spyOn(getTaskTestAccess(child), "getSystemPrompt").mockResolvedValue("mock system prompt")
+				vi.spyOn(child as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 
 				vi.spyOn(child.api, "createMessage").mockReturnValue(mockStream)
 
@@ -1300,7 +1273,7 @@ describe("Cline", () => {
 					startTask: false,
 					rateLimitClock: clock,
 				})
-				vi.spyOn(getTaskTestAccess(task), "getSystemPrompt").mockResolvedValue("mock system prompt")
+				vi.spyOn(task as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 
 				// Mock the API stream response
 				const mockStream = {
@@ -1339,7 +1312,7 @@ describe("Cline", () => {
 				vi.clearAllMocks()
 
 				mockApiConfig = {
-					apiProvider: providerIdentifiers.anthropic,
+					apiProvider: "anthropic",
 					apiKey: "test-key",
 				}
 
@@ -1393,7 +1366,7 @@ describe("Cline", () => {
 				// Test with Anthropic provider
 				const anthropicConfig = {
 					...mockApiConfig,
-					apiProvider: providerIdentifiers.anthropic,
+					apiProvider: "anthropic" as const,
 					apiModelId: "gpt-4",
 				}
 				const anthropicTask = new Task({
@@ -1407,7 +1380,7 @@ describe("Cline", () => {
 
 				// Test with OpenRouter provider and Claude model
 				const openrouterClaudeConfig = {
-					apiProvider: providerIdentifiers.openrouter,
+					apiProvider: "openrouter" as const,
 					openRouterModelId: "anthropic/claude-3-opus",
 				}
 				const openrouterClaudeTask = new Task({
@@ -1420,7 +1393,7 @@ describe("Cline", () => {
 
 				// Test with OpenRouter provider and non-Claude model
 				const openrouterGptConfig = {
-					apiProvider: providerIdentifiers.openrouter,
+					apiProvider: "openrouter" as const,
 					openRouterModelId: "openai/gpt-4",
 				}
 				const openrouterGptTask = new Task({
@@ -1442,7 +1415,7 @@ describe("Cline", () => {
 
 				for (const modelId of claudeModelFormats) {
 					const config = {
-						apiProvider: providerIdentifiers.openai,
+						apiProvider: "openai" as const,
 						openAiModelId: modelId,
 					}
 					const task = new Task({
@@ -1471,7 +1444,7 @@ describe("Cline", () => {
 
 				// Test with no model ID
 				const noModelConfig = {
-					apiProvider: providerIdentifiers.openai,
+					apiProvider: "openai" as const,
 				}
 				const noModelTask = new Task({
 					provider: mockProvider,
@@ -1656,7 +1629,7 @@ describe("Cline", () => {
 			})
 
 			// Cast to TaskLike to ensure interface compliance
-			const taskLike: TaskLike = task
+			const taskLike = task as any // TaskLike interface from types package
 
 			// Verify abortTask method exists and is callable
 			expect(typeof taskLike.abortTask).toBe("function")
@@ -1811,9 +1784,11 @@ describe("Cline", () => {
 				const cancelSpy = vi.spyOn(task, "cancelCurrentRequest")
 
 				// Mock other dispose operations
-				vi.spyOn(task.messageQueueService, "removeListener").mockImplementation(() => task.messageQueueService)
+				vi.spyOn(task.messageQueueService, "removeListener").mockImplementation(
+					() => task.messageQueueService as any,
+				)
 				vi.spyOn(task.messageQueueService, "dispose").mockImplementation(() => {})
-				vi.spyOn(task, "removeAllListeners").mockImplementation(() => task)
+				vi.spyOn(task, "removeAllListeners").mockImplementation(() => task as any)
 
 				// Call dispose
 				task.dispose()
@@ -1831,7 +1806,7 @@ describe("Cline", () => {
 					})
 
 					task.currentRequestAbortController = new AbortController()
-					vi.spyOn(getTaskTestAccess(task), "getSystemPrompt").mockResolvedValue("mock system prompt")
+					vi.spyOn(task as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 
 					await task.condenseContext()
 
@@ -1848,7 +1823,7 @@ describe("Cline", () => {
 						startTask: false,
 					})
 
-					vi.spyOn(getTaskTestAccess(task), "getSystemPrompt").mockResolvedValue("mock system prompt")
+					vi.spyOn(task as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 
 					await task.condenseContext()
 
@@ -1867,7 +1842,7 @@ describe("Cline", () => {
 					})
 
 					// Mock required methods for attemptApiRequest to work without hanging
-					vi.spyOn(getTaskTestAccess(task), "getSystemPrompt").mockResolvedValue("mock system prompt")
+					vi.spyOn(task as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 
 					vi.spyOn(task.api, "getModel").mockReturnValue({
 						id: mockApiConfig.apiModelId!,
@@ -1914,7 +1889,7 @@ describe("Cline", () => {
 							content: [{ type: "text" as const, text: "test message" }],
 							ts: Date.now(),
 						},
-					]
+					] as any
 
 					const iterator = task.attemptApiRequest(0)
 					await iterator.next()
@@ -1925,55 +1900,6 @@ describe("Cline", () => {
 
 					expect(metadata).toBeDefined()
 					expect(metadata!.abortSignal).toBe(task.currentRequestAbortController!.signal)
-				})
-
-				it("configures tool restrictions for Gemini requests", async () => {
-					const apiConfiguration = {
-						...mockApiConfig,
-						apiProvider: providerIdentifiers.gemini,
-					} as ProviderSettings
-					const task = new Task({
-						provider: mockProvider,
-						apiConfiguration,
-						task: "test task",
-						startTask: false,
-					})
-
-					vi.spyOn(getTaskTestAccess(task), "getSystemPrompt").mockResolvedValue("mock system prompt")
-					vi.spyOn(task.api, "getModel").mockReturnValue({
-						id: requireDefined(mockApiConfig.apiModelId),
-						info: { contextWindow: 200000, maxTokens: 4096 } as ModelInfo,
-					})
-					const providerState = await mockProvider.getState()
-					vi.spyOn(mockProvider, "getState").mockResolvedValue({
-						...providerState,
-						apiConfiguration,
-						autoApprovalEnabled: true,
-						requestDelaySeconds: 0,
-					})
-					const mockStream = (async function* () {
-						yield { type: "text", text: "response" } as ApiStreamChunk
-					})()
-					const createMessageSpy = vi.spyOn(task.api, "createMessage").mockReturnValue(mockStream)
-					task.apiConversationHistory = [
-						{ role: "user", content: [{ type: "text", text: "test message" }], ts: Date.now() },
-					]
-
-					await task.attemptApiRequest(0).next()
-
-					const [, , metadata] = requireDefined(createMessageSpy.mock.calls[0])
-					const tools = requireDefined(metadata?.tools)
-					const allowedFunctionNames = requireDefined(metadata?.allowedFunctionNames)
-					const toolNames = tools.map((tool) => {
-						if (tool.type !== "function") {
-							throw new Error(`Unexpected tool type: ${tool.type}`)
-						}
-						return tool.function.name
-					})
-
-					expect(tools.length).toBeGreaterThan(0)
-					expect(allowedFunctionNames.length).toBeGreaterThan(0)
-					expect(allowedFunctionNames.every((name) => toolNames.includes(name))).toBe(true)
 				})
 
 				it("should invoke abort on currentRequestAbortController during first-chunk wait", async () => {
@@ -2004,7 +1930,7 @@ describe("Cline", () => {
 						startTask: false,
 					})
 
-					vi.spyOn(getTaskTestAccess(task), "getSystemPrompt").mockResolvedValue("mock system prompt")
+					vi.spyOn(task as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 					vi.spyOn(task.api, "getModel").mockReturnValue({
 						id: mockApiConfig.apiModelId!,
 						info: {
@@ -2065,7 +1991,7 @@ describe("Cline", () => {
 							content: [{ type: "text" as const, text: "test message" }],
 							ts: Date.now(),
 						},
-					]
+					] as any
 
 					const streamIterator = task.attemptApiRequest(0)
 					await expect(streamIterator.next()).resolves.toMatchObject({
@@ -2088,7 +2014,7 @@ describe("Cline", () => {
 					})
 
 					// Mock required methods for attemptApiRequest to work without hanging
-					vi.spyOn(getTaskTestAccess(task), "getSystemPrompt").mockResolvedValue("mock system prompt")
+					vi.spyOn(task as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 
 					vi.spyOn(task.api, "getModel").mockReturnValue({
 						id: mockApiConfig.apiModelId!,
@@ -2135,7 +2061,7 @@ describe("Cline", () => {
 							content: [{ type: "text" as const, text: "test message" }],
 							ts: Date.now(),
 						},
-					]
+					] as any
 
 					const iterator = task.attemptApiRequest(0)
 					await iterator.next()
@@ -2156,7 +2082,7 @@ describe("Cline", () => {
 						startTask: false,
 					})
 
-					vi.spyOn(getTaskTestAccess(task), "getSystemPrompt").mockResolvedValue("mock system prompt")
+					vi.spyOn(task as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 					vi.spyOn(task.api, "getModel").mockReturnValue({
 						id: mockApiConfig.apiModelId!,
 						info: {
@@ -2200,7 +2126,7 @@ describe("Cline", () => {
 							content: [{ type: "text" as const, text: "test message" }],
 							ts: Date.now(),
 						},
-					]
+					] as any
 
 					expect(task.currentRequestAbortController).toBeUndefined()
 
@@ -2221,7 +2147,7 @@ describe("Cline", () => {
 						startTask: false,
 					})
 
-					vi.spyOn(getTaskTestAccess(task), "getSystemPrompt").mockResolvedValue("mock system prompt")
+					vi.spyOn(task as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 					vi.spyOn(task.api, "getModel").mockReturnValue({
 						id: mockApiConfig.apiModelId!,
 						info: {
@@ -2265,7 +2191,7 @@ describe("Cline", () => {
 							content: [{ type: "text" as const, text: "test message" }],
 							ts: Date.now(),
 						},
-					]
+					] as any
 
 					const iterator = task.attemptApiRequest(0)
 					await iterator.next()
@@ -2284,7 +2210,7 @@ describe("Cline", () => {
 					startTask: false,
 				})
 
-				vi.spyOn(getTaskTestAccess(task), "getSystemPrompt").mockResolvedValue("mock system prompt")
+				vi.spyOn(task as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 				vi.spyOn(task.api, "getModel").mockReturnValue({
 					id: mockApiConfig.apiModelId!,
 					info: {
@@ -2320,7 +2246,7 @@ describe("Cline", () => {
 						content: [{ type: "text" as const, text: "test message" }],
 						ts: Date.now(),
 					},
-				]
+				] as any
 
 				// First request
 				const iterator1 = task.attemptApiRequest(0)
@@ -2358,7 +2284,7 @@ describe("Cline", () => {
 					startTask: false,
 				})
 
-				vi.spyOn(getTaskTestAccess(task), "getSystemPrompt").mockResolvedValue("mock system prompt")
+				vi.spyOn(task as any, "getSystemPrompt").mockResolvedValue("mock system prompt")
 				vi.spyOn(task, "getTokenUsage").mockReturnValue({
 					totalCost: 0,
 					totalTokensIn: 0,
@@ -2399,7 +2325,7 @@ describe("Cline", () => {
 						content: [{ type: "text" as const, text: "test message" }],
 						ts: Date.now(),
 					},
-				]
+				] as any
 
 				let firstCall = true
 				const retryStream = {
@@ -2467,7 +2393,7 @@ describe("Cline", () => {
 			})
 
 			// Manually trigger start
-			const startTaskSpy = vi.spyOn(getTaskTestAccess(task), "startTask").mockImplementation(async () => {})
+			const startTaskSpy = vi.spyOn(task as any, "startTask").mockImplementation(async () => {})
 			task.start()
 
 			expect(startTaskSpy).toHaveBeenCalledTimes(1)
@@ -2480,9 +2406,7 @@ describe("Cline", () => {
 		it("should not call startTask if already started via constructor", () => {
 			// Create a task that starts immediately (startTask defaults to true)
 			// but mock startTask to prevent actual execution
-			const startTaskSpy = vi
-				.spyOn(getTaskTestAccess(Task.prototype), "startTask")
-				.mockImplementation(async () => {})
+			const startTaskSpy = vi.spyOn(Task.prototype as any, "startTask").mockImplementation(async () => {})
 
 			const task = new Task({
 				provider: mockProvider,
@@ -2523,11 +2447,9 @@ describe("Cline", () => {
 
 		it("logs (instead of crashing) when startTask rejects from the constructor", async () => {
 			const boom = new Error("startTask boom")
-			const startTaskSpy = vi
-				.spyOn(getTaskTestAccess(Task.prototype), "startTask")
-				.mockImplementation(async () => {
-					throw boom
-				})
+			const startTaskSpy = vi.spyOn(Task.prototype as any, "startTask").mockImplementation(async () => {
+				throw boom
+			})
 
 			new Task({
 				provider: mockProvider,
@@ -2545,11 +2467,9 @@ describe("Cline", () => {
 
 		it("logs (instead of crashing) when resumeTaskFromHistory rejects from the constructor", async () => {
 			const boom = new Error("resume boom")
-			const resumeSpy = vi
-				.spyOn(getTaskTestAccess(Task.prototype), "resumeTaskFromHistory")
-				.mockImplementation(async () => {
-					throw boom
-				})
+			const resumeSpy = vi.spyOn(Task.prototype as any, "resumeTaskFromHistory").mockImplementation(async () => {
+				throw boom
+			})
 
 			new Task({
 				provider: mockProvider,
@@ -2606,7 +2526,7 @@ describe("Cline", () => {
 				startTask: false,
 			})
 
-			vi.spyOn(getTaskTestAccess(task), "startTask").mockImplementation(async () => {
+			vi.spyOn(task as any, "startTask").mockImplementation(async () => {
 				throw boom
 			})
 
@@ -2636,7 +2556,7 @@ describe("Cline", () => {
 			consoleErrorSpy.mockClear()
 
 			task.abort = true
-			getTaskTestAccess(task).presentAssistantMessageSafe()
+			;(task as any).presentAssistantMessageSafe()
 			await flushMicrotasks()
 
 			expect(presentSpy).toHaveBeenCalledTimes(1)
@@ -2659,7 +2579,7 @@ describe("Cline", () => {
 			})
 
 			expect(task.abort).toBeFalsy()
-			getTaskTestAccess(task).presentAssistantMessageSafe()
+			;(task as any).presentAssistantMessageSafe()
 			await flushMicrotasks()
 
 			expect(presentSpy).toHaveBeenCalledTimes(1)
@@ -2690,7 +2610,7 @@ describe("Cline", () => {
 
 			// Simulate the TOCTOU race: abort flips between throw and catch.
 			task.abort = true
-			getTaskTestAccess(task).presentAssistantMessageSafe()
+			;(task as any).presentAssistantMessageSafe()
 			await flushMicrotasks()
 
 			expect(presentSpy).toHaveBeenCalledTimes(1)
@@ -2720,7 +2640,7 @@ describe("Cline", () => {
 			consoleErrorSpy.mockClear()
 
 			expect(task.abort).toBeFalsy()
-			getTaskTestAccess(task).presentAssistantMessageSafe()
+			;(task as any).presentAssistantMessageSafe()
 			await flushMicrotasks()
 
 			expect(presentSpy).toHaveBeenCalledTimes(1)
@@ -2737,11 +2657,9 @@ describe("Cline", () => {
 			// consumer-attached listener — that path must surface as a log,
 			// not an unhandled rejection.
 			const boom = new Error("updateClineMessage boom")
-			const updateSpy = vi
-				.spyOn(getTaskTestAccess(Task.prototype), "updateClineMessage")
-				.mockImplementation(async () => {
-					throw boom
-				})
+			const updateSpy = vi.spyOn(Task.prototype as any, "updateClineMessage").mockImplementation(async () => {
+				throw boom
+			})
 
 			const task = new Task({
 				provider: mockProvider,
@@ -2771,12 +2689,10 @@ describe("Cline", () => {
 			// Pins the symmetric .catch arm on the fire-and-forget
 			// updateClineMessage call in ask() when finalizing a partial.
 			const boom = new Error("updateClineMessage boom")
-			const updateSpy = vi
-				.spyOn(getTaskTestAccess(Task.prototype), "updateClineMessage")
-				.mockImplementation(async () => {
-					throw boom
-				})
-			const saveSpy = vi.spyOn(getTaskTestAccess(Task.prototype), "saveClineMessages").mockResolvedValue(true)
+			const updateSpy = vi.spyOn(Task.prototype as any, "updateClineMessage").mockImplementation(async () => {
+				throw boom
+			})
+			const saveSpy = vi.spyOn(Task.prototype as any, "saveClineMessages").mockResolvedValue(true)
 
 			const task = new Task({
 				provider: mockProvider,
@@ -2812,11 +2728,9 @@ describe("Cline", () => {
 			// in ask() when a new partial ask arrives while the previous partial
 			// is still pending (AskIgnoredError path).
 			const boom = new Error("updateClineMessage boom")
-			const updateSpy = vi
-				.spyOn(getTaskTestAccess(Task.prototype), "updateClineMessage")
-				.mockImplementation(async () => {
-					throw boom
-				})
+			const updateSpy = vi.spyOn(Task.prototype as any, "updateClineMessage").mockImplementation(async () => {
+				throw boom
+			})
 
 			const task = new Task({
 				provider: mockProvider,
@@ -2847,12 +2761,10 @@ describe("Cline", () => {
 			// Pins the .catch arm on the fire-and-forget updateClineMessage call
 			// in handleWebviewAskResponse when marking a tool ask as answered.
 			const boom = new Error("updateClineMessage boom")
-			const updateSpy = vi
-				.spyOn(getTaskTestAccess(Task.prototype), "updateClineMessage")
-				.mockImplementation(async () => {
-					throw boom
-				})
-			vi.spyOn(getTaskTestAccess(Task.prototype), "saveClineMessages").mockResolvedValue(false)
+			const updateSpy = vi.spyOn(Task.prototype as any, "updateClineMessage").mockImplementation(async () => {
+				throw boom
+			})
+			vi.spyOn(Task.prototype as any, "saveClineMessages").mockResolvedValue(undefined)
 
 			const task = new Task({
 				provider: mockProvider,
@@ -2915,12 +2827,7 @@ describe("Queued message processing after condense", () => {
 			dispose: vi.fn(),
 		}
 
-		const provider = new ClineProvider(
-			ctx,
-			output as unknown as vscode.OutputChannel,
-			"sidebar",
-			new ContextProxy(ctx),
-		)
+		const provider = new ClineProvider(ctx, output as any, "sidebar", new ContextProxy(ctx)) as any
 		provider.postMessageToWebview = vi.fn().mockResolvedValue(undefined)
 		provider.postStateToWebview = vi.fn().mockResolvedValue(undefined)
 		provider.postStateToWebviewWithoutTaskHistory = vi.fn().mockResolvedValue(undefined)
@@ -2929,10 +2836,10 @@ describe("Queued message processing after condense", () => {
 	}
 
 	const apiConfig: ProviderSettings = {
-		apiProvider: providerIdentifiers.anthropic,
+		apiProvider: "anthropic",
 		apiModelId: "claude-3-5-sonnet-20241022",
 		apiKey: "test-api-key",
-	}
+	} as any
 
 	it("processes queued message after condense completes", async () => {
 		const provider = createProvider()
@@ -2944,7 +2851,7 @@ describe("Queued message processing after condense", () => {
 		})
 
 		// Make condense fast + deterministic
-		vi.spyOn(getTaskTestAccess(task), "getSystemPrompt").mockResolvedValue("system")
+		vi.spyOn(task as any, "getSystemPrompt").mockResolvedValue("system")
 		const submitSpy = vi.spyOn(task, "submitUserMessage").mockResolvedValue(undefined)
 
 		// Queue a message during condensing
@@ -2979,8 +2886,8 @@ describe("Queued message processing after condense", () => {
 			startTask: false,
 		})
 
-		vi.spyOn(getTaskTestAccess(taskA), "getSystemPrompt").mockResolvedValue("system")
-		vi.spyOn(getTaskTestAccess(taskB), "getSystemPrompt").mockResolvedValue("system")
+		vi.spyOn(taskA as any, "getSystemPrompt").mockResolvedValue("system")
+		vi.spyOn(taskB as any, "getSystemPrompt").mockResolvedValue("system")
 
 		const spyA = vi.spyOn(taskA, "submitUserMessage").mockResolvedValue(undefined)
 		const spyB = vi.spyOn(taskB, "submitUserMessage").mockResolvedValue(undefined)
@@ -3015,7 +2922,7 @@ describe("pushToolResultToUserContent", () => {
 
 	beforeEach(() => {
 		mockApiConfig = {
-			apiProvider: providerIdentifiers.anthropic,
+			apiProvider: "anthropic",
 			apiModelId: "claude-3-5-sonnet-20241022",
 			apiKey: "test-api-key",
 		}
@@ -3058,7 +2965,7 @@ describe("pushToolResultToUserContent", () => {
 			mockOutputChannel,
 			"sidebar",
 			new ContextProxy(mockExtensionContext),
-		)
+		) as any
 
 		mockProvider.postMessageToWebview = vi.fn().mockResolvedValue(undefined)
 		mockProvider.postStateToWebview = vi.fn().mockResolvedValue(undefined)

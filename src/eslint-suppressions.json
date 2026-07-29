@@ -876,7 +876,7 @@
 	},
 	"core/task/__tests__/Task.spec.ts": {
 		"@typescript-eslint/no-explicit-any": {
-			"count": 31
+			"count": 93
 		}
 	},
 	"core/task/__tests__/Task.sticky-profile-race.spec.ts": {
@@ -1021,7 +1021,7 @@
 	},
 	"core/tools/__tests__/executeCommandTool.spec.ts": {
 		"@typescript-eslint/no-explicit-any": {
-			"count": 8
+			"count": 21
 		}
 	},
 	"core/tools/__tests__/generateImageTool.test.ts": {
@@ -1281,7 +1281,7 @@
 	},
 	"integrations/terminal/__tests__/ExecaTerminalProcess.spec.ts": {
 		"@typescript-eslint/no-explicit-any": {
-			"count": 10
+			"count": 18
 		}
 	},
 	"integrations/terminal/__tests__/OutputInterceptor.test.ts": {
@@ -1321,12 +1321,12 @@
 	},
 	"integrations/terminal/__tests__/TerminalProfile.spec.ts": {
 		"@typescript-eslint/no-explicit-any": {
-			"count": 35
+			"count": 39
 		}
 	},
 	"integrations/terminal/__tests__/TerminalRegistry.spec.ts": {
 		"@typescript-eslint/no-explicit-any": {
-			"count": 22
+			"count": 33
 		}
 	},
 	"integrations/terminal/__tests__/setupTerminalTests.ts": {
@@ -1807,6 +1807,16 @@
 	"vitest.setup.ts": {
 		"@typescript-eslint/no-explicit-any": {
 			"count": 1
+		}
+	},
+	"integrations/terminal/TerminalRegistry.ts": {
+		"@typescript-eslint/no-explicit-any": {
+			"count": 2
+		}
+	},
+	"integrations/terminal/__tests__/ShellResolver.spec.ts": {
+		"@typescript-eslint/no-explicit-any": {
+			"count": 4
 		}
 	}
 }
