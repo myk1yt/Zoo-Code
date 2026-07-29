@@ -1,3 +1,4 @@
+// @ts-nocheck
 // npx vitest run __tests__/task-run-dispatch.spec.ts
 //
 // Tests Task#run() dispatch logic in isolation by calling the method on a

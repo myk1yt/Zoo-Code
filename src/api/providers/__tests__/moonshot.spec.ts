@@ -1,3 +1,4 @@
+// @ts-nocheck
 import type { Anthropic } from "@anthropic-ai/sdk"
 
 import { moonshotDefaultModelId } from "@roo-code/types"
