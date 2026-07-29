@@ -1,0 +1,191 @@
+﻿
+> [93m[4mUnused exports[24m[39m (47)
+  formatGitSuggestion                         [90mfunction[39m            [90msrc/shared/context-mentions.ts:87:17[
+39m                    
+  getModeConfig                               [90mfunction[39m            [90msrc/shared/modes.ts:61:17[39m        
+                       
+  isCustomMode                                [90mfunction[39m            [90msrc/shared/modes.ts:94:17[39m        
+                       
+  getLmStudioModels                           [90mfunction[39m            [90msrc/api/providers/lm-studio.ts:220:23
+[39m                   
+  extractEnvironmentDetailsFo…                [90mfunction[39m            [90msrc/api/transform/minimax-format.ts:10
+9:17[39m              
+  isAutoApprovedSingleCommand                 [90mfunction[39m            [90msrc/core/auto-approval/commands.ts:124
+:17[39m               
+  isAutoDeniedSingleCommand                   [90mfunction[39m            [90msrc/core/auto-approval/commands.ts:180
+:17[39m               
+  getCurrentLanguage                          [90mfunction[39m            [90msrc/i18n/index.ts:17:17[39m          
+                       
+  setMinComponentLines                        [90mfunction[39m            [90msrc/services/tree-sitter/index.ts:26:1
+7[39m                 
+  TOOL_DISPLAY_NAMES                                              [90msrc/shared/tools.ts:268:14[39m                 
+             
+  addTodoToTask                               [90mfunction[39m            [90msrc/core/tools/UpdateTodoListTool.ts:1
+09:17[39m             
+  updateTodoStatusForTask                     [90mfunction[39m            [90msrc/core/tools/UpdateTodoListTool.ts:1
+20:17[39m             
+  removeTodoFromTask                          [90mfunction[39m            [90msrc/core/tools/UpdateTodoListTool.ts:1
+36:17[39m             
+  getTodoListForTask                          [90mfunction[39m            [90msrc/core/tools/UpdateTodoListTool.ts:1
+44:17[39m             
+  waitForClineInitialization                  [90mfunction[39m            [90msrc/core/webview/checkpointRestoreHand
+ler.ts:94:23[39m      
+  loadRooConfiguration                                            [90msrc/services/roo-config/index.ts:444:14[39m    
+             
+  flushModelProviders                                             [90msrc/api/providers/fetchers/modelEndpointCache.ts
+:103:14[39m 
+  applyToolAliases                            [90mfunction[39m            [90msrc/core/prompts/tools/filter-tools-fo
+r-mode.ts:108:17[39m  
+  getToolAliasGroup                           [90mfunction[39m            [90msrc/core/prompts/tools/filter-tools-fo
+r-mode.ts:126:17[39m  
+  getAvailableToolsInGroup                    [90mfunction[39m            [90msrc/core/prompts/tools/filter-tools-fo
+r-mode.ts:427:17[39m  
+  read_file                                                       [90msrc/core/prompts/tools/native-tools/read_file.ts
+:159:14[39m 
+  OpenAICompatibleHandler                     [90mclass[39m               [90msrc/api/providers/openai-compatible.ts
+:50:23[39m            
+  nativeTools                                                     [90msrc/core/prompts/tools/native-tools/index.ts:75:
+14[39m      
+  buildNativeToolsArray                       [90mfunction[39m            [90msrc/core/task/build-tools.ts:66:23[39
+m                      
+  EditMessageWithCheckpointDi…                                    [90m…i/src/components/chat/CheckpointRestoreDialog.t
+sx:77:14[39m
+  DeleteMessageWithCheckpoint…                                    [90m…i/src/components/chat/CheckpointRestoreDialog.t
+sx:81:14[39m
+  getRequestyAuthUrl                          [90mfunction[39m            [90mwebview-ui/src/oauth/urls.ts:11:17[39
+m                      
+  scanDOMForSearchableSettings                [90mfunction[39m            [90m…w-ui/src/components/settings/useSetti
+ngsSearch.ts:79:17[39m
+  initializeWorkspace                         [90mfunction[39m            [90mpackages/vscode-shim/src/utils/paths.t
+s:52:17[39m           
+  isAgentWaitingForInput                      [90mfunction[39m            [90mapps/cli/src/agent/agent-state.ts:446:
+17[39m                
+  isAgentRunning                              [90mfunction[39m            [90mapps/cli/src/agent/agent-state.ts:453:
+17[39m                
+  isContentStreaming                          [90mfunction[39m            [90mapps/cli/src/agent/agent-state.ts:461:
+17[39m                
+  createClient                                [90mfunction[39m            [90mapps/cli/src/agent/extension-client.ts
+:550:17[39m           
+  getDefaultStore                             [90mfunction[39m            [90mapps/cli/src/agent/state-store.ts:397:
+17[39m                
+  resetDefaultStore                           [90mfunction[39m            [90mapps/cli/src/agent/state-store.ts:409:
+17[39m                
+  isValidClineMessage                         [90mfunction[39m            [90mapps/cli/src/agent/message-processor.t
+s:411:17[39m          
+  parseApiReqStartedText                      [90mfunction[39m            [90mapps/cli/src/agent/message-processor.t
+s:472:17[39m          
+  welcomeText                   [90mtheme[39m                             [90mapps/cli/src/ui/theme.ts:41:14[39m   
+                       
+  asciiColor                    [90mtheme[39m                             [90mapps/cli/src/ui/theme.ts:42:14[39m   
+                       
+  tipsHeader                    [90mtheme[39m                             [90mapps/cli/src/ui/theme.ts:45:14[39m   
+                       
+  tipsText                      [90mtheme[39m                             [90mapps/cli/src/ui/theme.ts:46:14[39m   
+                       
+  promptColor                   [90mtheme[39m                             [90mapps/cli/src/ui/theme.ts:64:14[39m   
+                       
+  promptColorActive             [90mtheme[39m                             [90mapps/cli/src/ui/theme.ts:65:14[39m   
+                       
+  placeholderColor              [90mtheme[39m                             [90mapps/cli/src/ui/theme.ts:66:14[39m   
+                       
+  createClient                                                    [90mapps/cli/src/lib/sdk/client.ts:19:14[39m       
+             
+  formatDiffStats                             [90mfunction[39m            [90mapps/cli/src/ui/components/tools/utils
+.ts:38:17[39m         
+  formatPath                                  [90mfunction[39m            [90mapps/cli/src/ui/components/tools/utils
+.ts:152:17[39m        
+> [93m[4mUnused exported types[24m[39m (30)
+  ClineProviderEvents         [90mtype[39m                 [90msrc/core/webview/ClineProvider.ts:126:13[39m        
+                    
+  MessageQueueState           [90minterface[39m            [90msrc/core/message-queue/MessageQueueService.ts:7:18[3
+9m                  
+  AskFinishSubTaskApproval    [90mtype[39m                 [90msrc/shared/tools.ts:18:13[39m                       
+                    
+  ExecuteCommandToolUse       [90minterface[39m            [90msrc/shared/tools.ts:169:18[39m                      
+                    
+  ReadFileToolUse             [90minterface[39m            [90msrc/shared/tools.ts:175:18[39m                      
+                    
+  WriteToFileToolUse          [90minterface[39m            [90msrc/shared/tools.ts:196:18[39m                      
+                    
+  CodebaseSearchToolUse       [90minterface[39m            [90msrc/shared/tools.ts:201:18[39m                      
+                    
+  SearchFilesToolUse          [90minterface[39m            [90msrc/shared/tools.ts:206:18[39m                      
+                    
+  ListFilesToolUse            [90minterface[39m            [90msrc/shared/tools.ts:211:18[39m                      
+                    
+  UseMcpToolToolUse           [90minterface[39m            [90msrc/shared/tools.ts:216:18[39m                      
+                    
+  AccessMcpResourceToolUse    [90minterface[39m            [90msrc/shared/tools.ts:221:18[39m                      
+                    
+  AskFollowupQuestionToolUse  [90minterface[39m            [90msrc/shared/tools.ts:226:18[39m                      
+                    
+  SwitchModeToolUse           [90minterface[39m            [90msrc/shared/tools.ts:236:18[39m                      
+                    
+  NewTaskToolUse              [90minterface[39m            [90msrc/shared/tools.ts:241:18[39m                      
+                    
+  RunSlashCommandToolUse      [90minterface[39m            [90msrc/shared/tools.ts:246:18[39m                      
+                    
+  SkillToolUse                [90minterface[39m            [90msrc/shared/tools.ts:251:18[39m                      
+                    
+  GenerateImageToolUse        [90minterface[39m            [90msrc/shared/tools.ts:256:18[39m                      
+                    
+  ResolvedCommandEnvironment  [90minterface[39m            [90msrc/integrations/terminal/shell/types.ts:92:18[39m  
+                    
+  CachePoint                  [90minterface[39m            [90msrc/api/transform/cache-strategy/types.ts:25:18[39m 
+                    
+  ValidationError             [90minterface[39m            [90msrc/services/code-index/shared/validation-helpers.ts:
+59:18[39m          
+  ICodeIndexManager           [90minterface[39m            [90msrc/services/code-index/interfaces/manager.ts:7:18[3
+9m                  
+  TextDocument                [90minterface[39m            [90mpackages/vscode-shim/src/types.ts:84:18[39m         
+                    
+  WorkspaceFolder             [90minterface[39m            [90mpackages/vscode-shim/src/types.ts:113:18[39m        
+                    
+  WorkspaceConfiguration      [90minterface[39m            [90mpackages/vscode-shim/src/types.ts:122:18[39m        
+                    
+  CancellationToken           [90minterface[39m            [90mpackages/vscode-shim/src/types.ts:228:18[39m        
+                    
+  Commands                    [90mtype[39m                 [90mpackages/build/src/types.ts:38:13[39m               
+                    
+  MenuItem                    [90mtype[39m                 [90mpackages/build/src/types.ts:47:13[39m               
+                    
+  Submenus                    [90mtype[39m                 [90mpackages/build/src/types.ts:60:13[39m               
+                    
+  ConfigurationProperty       [90mtype[39m                 [90mpackages/build/src/types.ts:94:13[39m               
+                    
+  Contributes                 [90mtype[39m                 [90mpackages/build/src/types.ts:113:13[39m              
+                    
+  [93m[4mUnused exported enum members[24m[39m (8)
+  ITEM          [90mDropdownOptionType[39m            [90mwebview-ui/src/components/ui/select-dropdown.tsx:13:2[39m
+          
+  Unknown       [90mFileType[39m                      [90mpackages/vscode-shim/src/types.ts:237:2[39m              
+          
+  File          [90mFileType[39m                      [90mpackages/vscode-shim/src/types.ts:238:2[39m              
+          
+  Directory     [90mFileType[39m                      [90mpackages/vscode-shim/src/types.ts:239:2[39m              
+          
+  SymbolicLink  [90mFileType[39m                      [90mpackages/vscode-shim/src/types.ts:240:2[39m              
+          
+  Desktop       [90mUIKind[39m                        [90mpackages/vscode-shim/src/types.ts:278:2[39m              
+          
+  Web           [90mUIKind[39m                        [90mpackages/vscode-shim/src/types.ts:279:2[39m              
+          
+  None          [90mTaskStatus[39m                    [90mpackages/types/src/task.ts:104:2[39m                     
+          
+  [93m[4mDuplicate exports[24m[39m (7)
+  editTool|searchAndReplaceTool           [90msrc/core/tools/EditTool.ts[39m                                         
+ 
+  loadConfiguration|loadRooConfiguration  [90msrc/services/roo-config/index.ts[39m                                   
+ 
+  TranslationProvider|default             [90mwebview-ui/src/i18n/TranslationContext.tsx[39m                         
+ 
+  ErrorRow|default                        [90mwebview-ui/src/components/chat/ErrorRow.tsx[39m                        
+ 
+  TooManyToolsWarning|default             [90mwebview-ui/src/components/chat/TooManyToolsWarning.tsx[39m             
+ 
+  WarningRow|default                      [90mwebview-ui/src/components/chat/WarningRow.tsx[39m                      
+ 
+  ProfileViolationWarning|default         [90mwebview-ui/src/components/chat/ProfileViolationWarning.tsx[39m         
+ 
+
+

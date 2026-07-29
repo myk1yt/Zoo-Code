@@ -1,0 +1,101 @@
+﻿ WARN  Unsupported engine: wanted: {"node":"22.23.1"} (current: {"node":"v24.16.0","pnpm":"10.8.1"})
+
+> roo-code@ knip C:\Users\k1yt\OneDrive\Projects\ZooCode
+> knip
+
+Unused exports (47)
+formatGitSuggestion                         function            src/shared/context-mentions.ts:87:17                    
+getModeConfig                               function            src/shared/modes.ts:61:17                               
+isCustomMode                                function            src/shared/modes.ts:94:17                               
+getLmStudioModels                           function            src/api/providers/lm-studio.ts:220:23                   
+extractEnvironmentDetailsFo…                function            src/api/transform/minimax-format.ts:109:17              
+isAutoApprovedSingleCommand                 function            src/core/auto-approval/commands.ts:124:17               
+isAutoDeniedSingleCommand                   function            src/core/auto-approval/commands.ts:180:17               
+getCurrentLanguage                          function            src/i18n/index.ts:17:17                                 
+setMinComponentLines                        function            src/services/tree-sitter/index.ts:26:17                 
+TOOL_DISPLAY_NAMES                                              src/shared/tools.ts:268:14                              
+addTodoToTask                               function            src/core/tools/UpdateTodoListTool.ts:109:17             
+updateTodoStatusForTask                     function            src/core/tools/UpdateTodoListTool.ts:120:17             
+removeTodoFromTask                          function            src/core/tools/UpdateTodoListTool.ts:136:17             
+getTodoListForTask                          function            src/core/tools/UpdateTodoListTool.ts:144:17             
+waitForClineInitialization                  function            src/core/webview/checkpointRestoreHandler.ts:94:23      
+loadRooConfiguration                                            src/services/roo-config/index.ts:444:14                 
+flushModelProviders                                             src/api/providers/fetchers/modelEndpointCache.ts:103:14 
+applyToolAliases                            function            src/core/prompts/tools/filter-tools-for-mode.ts:108:17  
+getToolAliasGroup                           function            src/core/prompts/tools/filter-tools-for-mode.ts:126:17  
+getAvailableToolsInGroup                    function            src/core/prompts/tools/filter-tools-for-mode.ts:427:17  
+read_file                                                       src/core/prompts/tools/native-tools/read_file.ts:159:14 
+OpenAICompatibleHandler                     class               src/api/providers/openai-compatible.ts:50:23            
+nativeTools                                                     src/core/prompts/tools/native-tools/index.ts:75:14      
+buildNativeToolsArray                       function            src/core/task/build-tools.ts:66:23                      
+EditMessageWithCheckpointDi…                                    …i/src/components/chat/CheckpointRestoreDialog.tsx:77:14
+DeleteMessageWithCheckpoint…                                    …i/src/components/chat/CheckpointRestoreDialog.tsx:81:14
+getRequestyAuthUrl                          function            webview-ui/src/oauth/urls.ts:11:17                      
+scanDOMForSearchableSettings                function            …w-ui/src/components/settings/useSettingsSearch.ts:79:17
+initializeWorkspace                         function            packages/vscode-shim/src/utils/paths.ts:52:17           
+isAgentWaitingForInput                      function            apps/cli/src/agent/agent-state.ts:446:17                
+isAgentRunning                              function            apps/cli/src/agent/agent-state.ts:453:17                
+isContentStreaming                          function            apps/cli/src/agent/agent-state.ts:461:17                
+createClient                                function            apps/cli/src/agent/extension-client.ts:550:17           
+getDefaultStore                             function            apps/cli/src/agent/state-store.ts:397:17                
+resetDefaultStore                           function            apps/cli/src/agent/state-store.ts:409:17                
+isValidClineMessage                         function            apps/cli/src/agent/message-processor.ts:411:17          
+parseApiReqStartedText                      function            apps/cli/src/agent/message-processor.ts:472:17          
+welcomeText                   theme                             apps/cli/src/ui/theme.ts:41:14                          
+asciiColor                    theme                             apps/cli/src/ui/theme.ts:42:14                          
+tipsHeader                    theme                             apps/cli/src/ui/theme.ts:45:14                          
+tipsText                      theme                             apps/cli/src/ui/theme.ts:46:14                          
+promptColor                   theme                             apps/cli/src/ui/theme.ts:64:14                          
+promptColorActive             theme                             apps/cli/src/ui/theme.ts:65:14                          
+placeholderColor              theme                             apps/cli/src/ui/theme.ts:66:14                          
+createClient                                                    apps/cli/src/lib/sdk/client.ts:19:14                    
+formatDiffStats                             function            apps/cli/src/ui/components/tools/utils.ts:38:17         
+formatPath                                  function            apps/cli/src/ui/components/tools/utils.ts:152:17        
+Unused exported types (30)
+ClineProviderEvents         type                 src/core/webview/ClineProvider.ts:126:13                            
+MessageQueueState           interface            src/core/message-queue/MessageQueueService.ts:7:18                  
+AskFinishSubTaskApproval    type                 src/shared/tools.ts:18:13                                           
+ExecuteCommandToolUse       interface            src/shared/tools.ts:169:18                                          
+ReadFileToolUse             interface            src/shared/tools.ts:175:18                                          
+WriteToFileToolUse          interface            src/shared/tools.ts:196:18                                          
+CodebaseSearchToolUse       interface            src/shared/tools.ts:201:18                                          
+SearchFilesToolUse          interface            src/shared/tools.ts:206:18                                          
+ListFilesToolUse            interface            src/shared/tools.ts:211:18                                          
+UseMcpToolToolUse           interface            src/shared/tools.ts:216:18                                          
+AccessMcpResourceToolUse    interface            src/shared/tools.ts:221:18                                          
+AskFollowupQuestionToolUse  interface            src/shared/tools.ts:226:18                                          
+SwitchModeToolUse           interface            src/shared/tools.ts:236:18                                          
+NewTaskToolUse              interface            src/shared/tools.ts:241:18                                          
+RunSlashCommandToolUse      interface            src/shared/tools.ts:246:18                                          
+SkillToolUse                interface            src/shared/tools.ts:251:18                                          
+GenerateImageToolUse        interface            src/shared/tools.ts:256:18                                          
+ResolvedCommandEnvironment  interface            src/integrations/terminal/shell/types.ts:92:18                      
+CachePoint                  interface            src/api/transform/cache-strategy/types.ts:25:18                     
+ValidationError             interface            src/services/code-index/shared/validation-helpers.ts:59:18          
+ICodeIndexManager           interface            src/services/code-index/interfaces/manager.ts:7:18                  
+TextDocument                interface            packages/vscode-shim/src/types.ts:84:18                             
+WorkspaceFolder             interface            packages/vscode-shim/src/types.ts:113:18                            
+WorkspaceConfiguration      interface            packages/vscode-shim/src/types.ts:122:18                            
+CancellationToken           interface            packages/vscode-shim/src/types.ts:228:18                            
+Commands                    type                 packages/build/src/types.ts:38:13                                   
+MenuItem                    type                 packages/build/src/types.ts:47:13                                   
+Submenus                    type                 packages/build/src/types.ts:60:13                                   
+ConfigurationProperty       type                 packages/build/src/types.ts:94:13                                   
+Contributes                 type                 packages/build/src/types.ts:113:13                                  
+Unused exported enum members (8)
+ITEM          DropdownOptionType            webview-ui/src/components/ui/select-dropdown.tsx:13:2          
+Unknown       FileType                      packages/vscode-shim/src/types.ts:237:2                        
+File          FileType                      packages/vscode-shim/src/types.ts:238:2                        
+Directory     FileType                      packages/vscode-shim/src/types.ts:239:2                        
+SymbolicLink  FileType                      packages/vscode-shim/src/types.ts:240:2                        
+Desktop       UIKind                        packages/vscode-shim/src/types.ts:278:2                        
+Web           UIKind                        packages/vscode-shim/src/types.ts:279:2                        
+None          TaskStatus                    packages/types/src/task.ts:104:2                               
+Duplicate exports (7)
+editTool|searchAndReplaceTool           src/core/tools/EditTool.ts                                          
+loadConfiguration|loadRooConfiguration  src/services/roo-config/index.ts                                    
+TranslationProvider|default             webview-ui/src/i18n/TranslationContext.tsx                          
+ErrorRow|default                        webview-ui/src/components/chat/ErrorRow.tsx                         
+TooManyToolsWarning|default             webview-ui/src/components/chat/TooManyToolsWarning.tsx              
+WarningRow|default                      webview-ui/src/components/chat/WarningRow.tsx                       
+ProfileViolationWarning|default         webview-ui/src/components/chat/ProfileViolationWarning.tsx          
