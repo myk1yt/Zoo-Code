@@ -18,6 +18,11 @@ import type { SkillMetadata } from "./skills.js"
 import type { RuleMetadata } from "./rules.js"
 import type { TelemetrySetting } from "./telemetry.js"
 import type { WorktreeIncludeStatus } from "./worktree.js"
+import type {
+	TaskOrganizationMutationRequestV1,
+	TaskOrganizationMutationResultV1,
+	TaskOrganizationStateV1,
+} from "./task-organization.js"
 
 /**
  * ExtensionMessage
@@ -103,6 +108,10 @@ export interface ExtensionMessage {
 		| "rules"
 		| "fileContent"
 		| "rooHistoryImportProgress"
+		// Task organization (B09)
+		| "taskOrganizationSnapshot"
+		| "taskOrganizationUpdated"
+		| "taskOrganizationMutationResult"
 	text?: string
 	/** For fileContent: { path, content, error? } */
 	fileContent?: { path: string; content: string | null; error?: string }
@@ -248,6 +257,23 @@ export interface ExtensionMessage {
 	copyProgressItemName?: string
 	// folderSelected
 	path?: string
+
+	// ── Task organization (B09) ────────────────────────────────────────────
+	/**
+	 * Latest task organization aggregate snapshot broadcast by the host.
+	 * Used with `type: "taskOrganizationSnapshot"`.
+	 */
+	taskOrganizationSnapshot?: TaskOrganizationStateV1
+	/**
+	 * Task organization state update.
+	 * Used with `type: "taskOrganizationUpdated"`.
+	 */
+	taskOrganization?: TaskOrganizationStateV1
+	/**
+	 * Result for a specific `taskOrganizationMutate` request, keyed by `requestId`.
+	 * Used with `type: "taskOrganizationMutationResult"`.
+	 */
+	taskOrganizationMutationResult?: TaskOrganizationMutationResultV1
 }
 
 export interface OpenAiCodexRateLimitsMessage {
@@ -418,6 +444,18 @@ export type ExtensionState = Pick<
 	 * (captured during async getStateToPostToWebview) from overwriting newer messages.
 	 */
 	clineMessagesSeq?: number
+
+	// ── Task organization (B09) ────────────────────────────────────────────
+	/**
+	 * Latest task organization aggregate snapshot for first-load hydration.
+	 * Subsequent updates arrive as standalone ExtensionMessages
+	 * (`type: "taskOrganizationSnapshot"` or `type: "taskOrganizationUpdated"`).
+	 */
+	taskOrganizationSnapshot?: TaskOrganizationStateV1
+	/**
+	 * Task organization state (for ExtensionState).
+	 */
+	taskOrganization?: TaskOrganizationStateV1
 }
 
 export interface Command {
@@ -595,6 +633,11 @@ export interface WebviewMessage {
 		| "openDebugUiHistory"
 		| "downloadErrorDiagnostics"
 		| "requestOpenAiCodexRateLimits"
+		// Task organization (B09)
+		| "requestTaskOrganizationSnapshot"
+		| "taskOrganizationMutate"
+		| "taskOrganizationMutation"
+		| "taskOrganizationReconcile"
 		| "refreshCustomTools"
 		| "requestModes"
 		| "switchMode"
@@ -741,6 +784,14 @@ export interface WebviewMessage {
 	worktreeForce?: boolean
 	worktreeNewWindow?: boolean
 	worktreeIncludeContent?: string
+
+	// ── Task organization (B09) ────────────────────────────────────────────
+	/**
+	 * Payload for `taskOrganizationMutate` WebviewMessage.
+	 * The host validates `baseRevision` against the on-disk aggregate revision
+	 * before applying the mutation.
+	 */
+	taskOrganizationMutationRequest?: TaskOrganizationMutationRequestV1
 }
 
 export interface RequestOpenAiCodexRateLimitsMessage {

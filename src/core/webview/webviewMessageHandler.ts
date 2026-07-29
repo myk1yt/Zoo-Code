@@ -563,21 +563,17 @@ export const webviewMessageHandler = async (
 			const customModes = await provider.customModesManager.getCustomModes()
 			await updateGlobalState("customModes", customModes)
 
-			await provider.postStateToWebview()
-			void provider.workspaceTracker
-				?.initializeFilePaths()
-				.catch((err) => provider.log(`Workspace initialization error: ${err}`)) // Don't await.
+			provider.postStateToWebview()
+			provider.workspaceTracker?.initializeFilePaths() // Don't await.
 
-			await getTheme().then((theme) =>
-				provider.postMessageToWebview({ type: "theme", text: JSON.stringify(theme) }),
-			)
+			getTheme().then((theme) => provider.postMessageToWebview({ type: "theme", text: JSON.stringify(theme) }))
 
 			// If MCP Hub is already initialized, update the webview with
 			// current server list.
 			const mcpHub = provider.getMcpHub()
 
 			if (mcpHub) {
-				await provider.postMessageToWebview({ type: "mcpServers", mcpServers: mcpHub.getAllServers() })
+				provider.postMessageToWebview({ type: "mcpServers", mcpServers: mcpHub.getAllServers() })
 			}
 
 			provider.providerSettingsManager
@@ -634,7 +630,7 @@ export const webviewMessageHandler = async (
 				)
 
 			// Enable telemetry by default (when unset) or when explicitly enabled
-			await provider.getStateToPostToWebview().then((state) => {
+			provider.getStateToPostToWebview().then((state) => {
 				const { telemetrySetting } = state
 				const isOptedIn = telemetrySetting !== "disabled"
 				TelemetryService.instance.updateTelemetryState(isOptedIn)
@@ -790,7 +786,7 @@ export const webviewMessageHandler = async (
 
 		case "terminalOperation":
 			if (message.terminalOperation) {
-				await provider.getCurrentTask()?.handleTerminalOperation(message.terminalOperation)
+				provider.getCurrentTask()?.handleTerminalOperation(message.terminalOperation)
 			}
 			break
 		case "clearTask":
@@ -816,7 +812,7 @@ export const webviewMessageHandler = async (
 		case "exportCurrentTask":
 			const currentTaskId = provider.getCurrentTask()?.taskId
 			if (currentTaskId) {
-				await provider.exportTaskWithId(currentTaskId)
+				provider.exportTaskWithId(currentTaskId)
 			}
 			break
 		case "shareCurrentTask":
@@ -830,13 +826,13 @@ export const webviewMessageHandler = async (
 			vscode.window.showErrorMessage(t("common:errors.share_not_enabled"))
 			break
 		case "showTaskWithId":
-			await provider.showTaskWithId(message.text!)
+			provider.showTaskWithId(message.text!)
 			break
 		case "condenseTaskContextRequest":
-			await provider.condenseTaskContext(message.text!)
+			provider.condenseTaskContext(message.text!)
 			break
 		case "deleteTaskWithId":
-			await provider.deleteTaskWithId(message.text!)
+			provider.deleteTaskWithId(message.text!)
 			break
 		case "abandonSubtaskWithId":
 			provider
@@ -892,7 +888,7 @@ export const webviewMessageHandler = async (
 			break
 		}
 		case "exportTaskWithId":
-			await provider.exportTaskWithId(message.text!)
+			provider.exportTaskWithId(message.text!)
 			break
 		case "getTaskWithAggregatedCosts": {
 			try {
@@ -1249,7 +1245,7 @@ export const webviewMessageHandler = async (
 
 					routerModels[routerName] = {} // Ensure it's an empty object in the main routerModels message.
 
-					void provider.postMessageToWebview({
+					provider.postMessageToWebview({
 						type: "singleRouterModelFetchResponse",
 						success: false,
 						error: errorMessage,
@@ -1258,7 +1254,7 @@ export const webviewMessageHandler = async (
 				}
 			})
 
-			await provider.postMessageToWebview({
+			provider.postMessageToWebview({
 				type: "routerModels",
 				routerModels,
 				values: providerFilter ? { provider: requestedProvider } : undefined,
@@ -1288,7 +1284,7 @@ export const webviewMessageHandler = async (
 			} catch (error) {
 				const errorMsg = error instanceof Error ? error.message : String(error)
 				provider.log(`[requestOllamaModels] Failed to refresh model cache for ${logBaseUrl}: ${errorMsg}`)
-				await provider.postMessageToWebview({
+				provider.postMessageToWebview({
 					type: "ollamaModels",
 					ollamaModels: {},
 					error: errorMsg,
@@ -1301,11 +1297,11 @@ export const webviewMessageHandler = async (
 
 				// Always post a response so the webview refresh status can
 				// transition out of "loading" — even when no models are found.
-				await provider.postMessageToWebview({ type: "ollamaModels", ollamaModels })
+				provider.postMessageToWebview({ type: "ollamaModels", ollamaModels })
 			} catch (error) {
 				const errorMsg = error instanceof Error ? error.message : String(error)
 				provider.log(`[requestOllamaModels] Failed to read models for ${logBaseUrl}: ${errorMsg}`)
-				await provider.postMessageToWebview({
+				provider.postMessageToWebview({
 					type: "ollamaModels",
 					ollamaModels: {},
 					error: errorMsg,
@@ -1333,7 +1329,7 @@ export const webviewMessageHandler = async (
 				}
 
 				if (Object.keys(lmStudioModels).length > 0) {
-					await provider.postMessageToWebview({
+					provider.postMessageToWebview({
 						type: "lmStudioModels",
 						lmStudioModels: lmStudioModels,
 					})
@@ -1345,7 +1341,7 @@ export const webviewMessageHandler = async (
 			break
 		}
 		case "requestRooModels": {
-			await provider.postMessageToWebview({
+			provider.postMessageToWebview({
 				type: "singleRouterModelFetchResponse",
 				success: false,
 				error: getRouterRemovalMessage(),
@@ -1361,24 +1357,24 @@ export const webviewMessageHandler = async (
 					message?.values?.openAiHeaders,
 				)
 
-				await provider.postMessageToWebview({ type: "openAiModels", openAiModels })
+				provider.postMessageToWebview({ type: "openAiModels", openAiModels })
 			}
 
 			break
 		case "requestVsCodeLmModels":
 			const vsCodeLmModels = await getVsCodeLmModels()
 			// TODO: Cache like we do for OpenRouter, etc?
-			await provider.postMessageToWebview({ type: "vsCodeLmModels", vsCodeLmModels })
+			provider.postMessageToWebview({ type: "vsCodeLmModels", vsCodeLmModels })
 			break
 		case "openImage":
-			await openImage(message.text!, { values: message.values })
+			openImage(message.text!, { values: message.values })
 			break
 		case "saveImage":
 			if (message.dataUri) {
 				const matches = message.dataUri.match(/^data:image\/([a-zA-Z]+);base64,(.+)$/)
 				if (!matches) {
 					// Let saveImage handle invalid URI error
-					await saveImage(message.dataUri, vscode.Uri.file(""))
+					saveImage(message.dataUri, vscode.Uri.file(""))
 					break
 				}
 				const format = matches[1]
@@ -1406,12 +1402,12 @@ export const webviewMessageHandler = async (
 			if (!path.isAbsolute(filePath)) {
 				filePath = path.join(getCurrentCwd(), filePath)
 			}
-			await openFile(filePath, message.values as { create?: boolean; content?: string; line?: number })
+			openFile(filePath, message.values as { create?: boolean; content?: string; line?: number })
 			break
 		case "readFileContent": {
 			const relPath = message.text || ""
 			if (!relPath) {
-				await provider.postMessageToWebview({
+				provider.postMessageToWebview({
 					type: "fileContent",
 					fileContent: { path: relPath, content: null, error: "No path provided" },
 				})
@@ -1420,7 +1416,7 @@ export const webviewMessageHandler = async (
 			try {
 				const cwd = getCurrentCwd()
 				if (!cwd) {
-					await provider.postMessageToWebview({
+					provider.postMessageToWebview({
 						type: "fileContent",
 						fileContent: { path: relPath, content: null, error: "No workspace path available" },
 					})
@@ -1429,17 +1425,17 @@ export const webviewMessageHandler = async (
 				const absPath = path.resolve(cwd, relPath)
 				// Workspace-boundary validation: prevent path traversal attacks
 				if (isPathOutsideWorkspace(absPath)) {
-					await provider.postMessageToWebview({
+					provider.postMessageToWebview({
 						type: "fileContent",
 						fileContent: { path: relPath, content: null, error: "Path is outside workspace" },
 					})
 					break
 				}
 				const content = await fs.readFile(absPath, "utf-8")
-				await provider.postMessageToWebview({ type: "fileContent", fileContent: { path: relPath, content } })
+				provider.postMessageToWebview({ type: "fileContent", fileContent: { path: relPath, content } })
 			} catch (err) {
 				const errorMsg = err instanceof Error ? err.message : String(err)
-				await provider.postMessageToWebview({
+				provider.postMessageToWebview({
 					type: "fileContent",
 					fileContent: { path: relPath, content: null, error: errorMsg },
 				})
@@ -1447,7 +1443,7 @@ export const webviewMessageHandler = async (
 			break
 		}
 		case "openMention":
-			await openMention(getCurrentCwd(), message.text)
+			openMention(getCurrentCwd(), message.text)
 			break
 		case "openExternal":
 			if (message.url) {
@@ -1577,7 +1573,7 @@ export const webviewMessageHandler = async (
 			const customModesFilePath = await provider.customModesManager.getCustomModesFilePath()
 
 			if (customModesFilePath) {
-				await openFile(customModesFilePath)
+				openFile(customModesFilePath)
 			}
 
 			break
@@ -1604,7 +1600,7 @@ export const webviewMessageHandler = async (
 			const mcpSettingsFilePath = await provider.getMcpHub()?.getMcpSettingsFilePath()
 
 			if (mcpSettingsFilePath) {
-				await openFile(mcpSettingsFilePath)
+				openFile(mcpSettingsFilePath)
 			}
 
 			break
@@ -1741,7 +1737,7 @@ export const webviewMessageHandler = async (
 			break
 		case "playTts":
 			if (message.text) {
-				void playTts(message.text, {
+				playTts(message.text, {
 					onStart: () => provider.postMessageToWebview({ type: "ttsStart", text: message.text }),
 					onStop: () => provider.postMessageToWebview({ type: "ttsStop", text: message.text }),
 				})
@@ -1824,7 +1820,7 @@ export const webviewMessageHandler = async (
 					customModePrompts: updatedPrompts,
 					hasOpenedModeSelector: currentState.hasOpenedModeSelector ?? false,
 				}
-				await provider.postMessageToWebview({ type: "state", state: stateWithPrompts })
+				provider.postMessageToWebview({ type: "state", state: stateWithPrompts })
 
 				if (TelemetryService.hasInstance()) {
 					// Determine which setting was changed by comparing objects
@@ -2229,7 +2225,7 @@ export const webviewMessageHandler = async (
 			try {
 				const listApiConfig = await provider.providerSettingsManager.listConfig()
 				await updateGlobalState("listApiConfigMeta", listApiConfig)
-				await provider.postMessageToWebview({ type: "listApiConfig", listApiConfig })
+				provider.postMessageToWebview({ type: "listApiConfig", listApiConfig })
 			} catch (error) {
 				provider.log(
 					`Error get list api configuration: ${JSON.stringify(error, Object.getOwnPropertyNames(error), 2)}`,
@@ -2405,7 +2401,7 @@ export const webviewMessageHandler = async (
 							await fs.writeFile(saveUri.fsPath, result.yaml, "utf-8")
 
 							// Send success message to webview
-							await provider.postMessageToWebview({
+							provider.postMessageToWebview({
 								type: "exportModeResult",
 								success: true,
 								slug: message.slug,
@@ -2415,7 +2411,7 @@ export const webviewMessageHandler = async (
 							vscode.window.showInformationMessage(t("common:info.mode_exported", { mode: message.slug }))
 						} else {
 							// User cancelled the save dialog
-							await provider.postMessageToWebview({
+							provider.postMessageToWebview({
 								type: "exportModeResult",
 								success: false,
 								error: "Export cancelled",
@@ -2424,7 +2420,7 @@ export const webviewMessageHandler = async (
 						}
 					} else {
 						// Send error message to webview
-						await provider.postMessageToWebview({
+						provider.postMessageToWebview({
 							type: "exportModeResult",
 							success: false,
 							error: result.error,
@@ -2436,7 +2432,7 @@ export const webviewMessageHandler = async (
 					provider.log(`Failed to export mode ${message.slug}: ${errorMessage}`)
 
 					// Send error message to webview
-					await provider.postMessageToWebview({
+					provider.postMessageToWebview({
 						type: "exportModeResult",
 						success: false,
 						error: errorMessage,
@@ -2495,7 +2491,7 @@ export const webviewMessageHandler = async (
 						await provider.postStateToWebview()
 
 						// Send success message to webview, include the imported slug so UI can switch
-						await provider.postMessageToWebview({
+						provider.postMessageToWebview({
 							type: "importModeResult",
 							success: true,
 							slug: result.slug,
@@ -2505,7 +2501,7 @@ export const webviewMessageHandler = async (
 						vscode.window.showInformationMessage(t("common:info.mode_imported"))
 					} else {
 						// Send error message to webview
-						await provider.postMessageToWebview({
+						provider.postMessageToWebview({
 							type: "importModeResult",
 							success: false,
 							error: result.error,
@@ -2516,7 +2512,7 @@ export const webviewMessageHandler = async (
 					}
 				} else {
 					// User cancelled the file dialog - reset the importing state
-					await provider.postMessageToWebview({
+					provider.postMessageToWebview({
 						type: "importModeResult",
 						success: false,
 						error: "cancelled",
@@ -2527,7 +2523,7 @@ export const webviewMessageHandler = async (
 				provider.log(`Failed to import mode: ${errorMessage}`)
 
 				// Send error message to webview
-				await provider.postMessageToWebview({
+				provider.postMessageToWebview({
 					type: "importModeResult",
 					success: false,
 					error: errorMessage,
@@ -2541,7 +2537,7 @@ export const webviewMessageHandler = async (
 			if (message.slug) {
 				const hasContent = await provider.customModesManager.checkRulesDirectoryHasContent(message.slug)
 
-				await provider.postMessageToWebview({
+				provider.postMessageToWebview({
 					type: "checkRulesDirectoryResult",
 					slug: message.slug,
 					hasContent: hasContent,
@@ -2619,14 +2615,14 @@ export const webviewMessageHandler = async (
 		case "rooCloudSignOut": {
 			if (!isCloudServiceAvailable()) {
 				await provider.postStateToWebview()
-				await provider.postMessageToWebview({ type: "authenticatedUser", userInfo: undefined })
+				provider.postMessageToWebview({ type: "authenticatedUser", userInfo: undefined })
 				break
 			}
 
 			try {
 				await CloudService.instance.logout()
 				await provider.postStateToWebview()
-				await provider.postMessageToWebview({ type: "authenticatedUser", userInfo: undefined })
+				provider.postMessageToWebview({ type: "authenticatedUser", userInfo: undefined })
 			} catch (error) {
 				provider.log(`AuthService#logout failed: ${error}`)
 				vscode.window.showErrorMessage("Sign out failed.")
@@ -3029,7 +3025,7 @@ export const webviewMessageHandler = async (
 			const manager = provider.getCurrentWorkspaceCodeIndexManager()
 			if (!manager) {
 				// No workspace open - send error status
-				await provider.postMessageToWebview({
+				provider.postMessageToWebview({
 					type: "indexingStatusUpdate",
 					values: {
 						systemStatus: "Error",
@@ -3054,7 +3050,7 @@ export const webviewMessageHandler = async (
 						workspacePath: undefined,
 					}
 
-			await provider.postMessageToWebview({
+			provider.postMessageToWebview({
 				type: "indexingStatusUpdate",
 				values: status,
 			})
@@ -3074,7 +3070,7 @@ export const webviewMessageHandler = async (
 			))
 			const hasOpenRouterApiKey = !!(await provider.context.secrets.get("codebaseIndexOpenRouterApiKey"))
 
-			await provider.postMessageToWebview({
+			provider.postMessageToWebview({
 				type: "codeIndexSecretStatus",
 				values: {
 					hasOpenAiKey,
@@ -3092,7 +3088,7 @@ export const webviewMessageHandler = async (
 			try {
 				const manager = provider.getCurrentWorkspaceCodeIndexManager()
 				if (!manager) {
-					await provider.postMessageToWebview({
+					provider.postMessageToWebview({
 						type: "indexingStatusUpdate",
 						values: {
 							systemStatus: "Error",
@@ -3114,12 +3110,12 @@ export const webviewMessageHandler = async (
 
 					const currentState = manager.state
 					if (currentState === "Standby" || currentState === "Error") {
-						void manager.startIndexing().catch((err) => provider.log(`Indexing error: ${err}`))
+						manager.startIndexing()
 
 						if (!manager.isInitialized) {
 							await manager.initialize(provider.contextProxy)
 							if (manager.state === "Standby" || manager.state === "Error") {
-								void manager.startIndexing().catch((err) => provider.log(`Indexing error: ${err}`))
+								manager.startIndexing()
 							}
 						}
 					}
@@ -3137,7 +3133,7 @@ export const webviewMessageHandler = async (
 					return
 				}
 				manager.stopIndexing()
-				await provider.postMessageToWebview({
+				provider.postMessageToWebview({
 					type: "indexingStatusUpdate",
 					values: manager.getCurrentStatus(),
 				})
@@ -3157,11 +3153,11 @@ export const webviewMessageHandler = async (
 				await manager.setWorkspaceEnabled(enabled)
 				if (enabled && manager.isFeatureEnabled && manager.isFeatureConfigured) {
 					await manager.initialize(provider.contextProxy)
-					void manager.startIndexing().catch((err) => provider.log(`Indexing error: ${err}`))
+					manager.startIndexing()
 				} else if (!enabled) {
 					manager.stopIndexing()
 				}
-				await provider.postMessageToWebview({
+				provider.postMessageToWebview({
 					type: "indexingStatusUpdate",
 					values: manager.getCurrentStatus(),
 				})
@@ -3191,10 +3187,10 @@ export const webviewMessageHandler = async (
 						m.stopIndexing()
 					} else if (!wasEnabled && isNowEnabled && m.isFeatureEnabled && m.isFeatureConfigured) {
 						await m.initialize(provider.contextProxy)
-						void m.startIndexing().catch((err) => provider.log(`Indexing error: ${err}`))
+						m.startIndexing()
 					}
 				}
-				await provider.postMessageToWebview({
+				provider.postMessageToWebview({
 					type: "indexingStatusUpdate",
 					values: manager.getCurrentStatus(),
 				})
@@ -3210,7 +3206,7 @@ export const webviewMessageHandler = async (
 				const manager = provider.getCurrentWorkspaceCodeIndexManager()
 				if (!manager) {
 					provider.log("Cannot clear index data: No workspace folder open")
-					await provider.postMessageToWebview({
+					provider.postMessageToWebview({
 						type: "indexCleared",
 						values: {
 							success: false,
@@ -3220,10 +3216,10 @@ export const webviewMessageHandler = async (
 					return
 				}
 				await manager.clearIndexData()
-				await provider.postMessageToWebview({ type: "indexCleared", values: { success: true } })
+				provider.postMessageToWebview({ type: "indexCleared", values: { success: true } })
 			} catch (error) {
 				provider.log(`Error clearing index data: ${error instanceof Error ? error.message : String(error)}`)
-				await provider.postMessageToWebview({
+				provider.postMessageToWebview({
 					type: "indexCleared",
 					values: {
 						success: false,
@@ -3272,7 +3268,7 @@ export const webviewMessageHandler = async (
 					console.log(`Marketplace item installed and config file opened: ${configFilePath}`)
 
 					// Send success message to webview
-					await provider.postMessageToWebview({
+					provider.postMessageToWebview({
 						type: "marketplaceInstallResult",
 						success: true,
 						slug: message.mpItem.id,
@@ -3280,7 +3276,7 @@ export const webviewMessageHandler = async (
 				} catch (error) {
 					console.error(`Error installing marketplace item: ${error}`)
 					// Send error message to webview
-					await provider.postMessageToWebview({
+					provider.postMessageToWebview({
 						type: "marketplaceInstallResult",
 						success: false,
 						error: error instanceof Error ? error.message : String(error),
@@ -3298,7 +3294,7 @@ export const webviewMessageHandler = async (
 					await provider.postStateToWebview()
 
 					// Send success message to webview
-					await provider.postMessageToWebview({
+					provider.postMessageToWebview({
 						type: "marketplaceRemoveResult",
 						success: true,
 						slug: message.mpItem.id,
@@ -3312,7 +3308,7 @@ export const webviewMessageHandler = async (
 					)
 
 					// Send error message to webview
-					await provider.postMessageToWebview({
+					provider.postMessageToWebview({
 						type: "marketplaceRemoveResult",
 						success: false,
 						error: error instanceof Error ? error.message : String(error),
@@ -3329,7 +3325,7 @@ export const webviewMessageHandler = async (
 				vscode.window.showErrorMessage(errorMessage)
 
 				if (message.mpItem?.id) {
-					await provider.postMessageToWebview({
+					provider.postMessageToWebview({
 						type: "marketplaceRemoveResult",
 						success: false,
 						error: errorMessage,
@@ -3445,7 +3441,7 @@ export const webviewMessageHandler = async (
 					const command = await getCommand(getCurrentCwd(), message.text)
 
 					if (command && command.filePath) {
-						await openFile(command.filePath)
+						openFile(command.filePath)
 					} else {
 						vscode.window.showErrorMessage(t("common:errors.command_not_found", { name: message.text }))
 					}
@@ -3575,7 +3571,7 @@ export const webviewMessageHandler = async (
 				provider.log(`Created new command file: ${filePath}`)
 
 				// Open the new file in the editor
-				await openFile(filePath)
+				openFile(filePath)
 
 				// Refresh commands list
 				const { getCommands } = await import("../../services/command/commands")
@@ -3699,7 +3695,7 @@ export const webviewMessageHandler = async (
 				const accessToken = await openAiCodexOAuthManager.getAccessToken()
 
 				if (!accessToken) {
-					await provider.postMessageToWebview({
+					provider.postMessageToWebview({
 						type: "openAiCodexRateLimits",
 						error: "Not authenticated with OpenAI Codex",
 					})
@@ -3710,22 +3706,111 @@ export const webviewMessageHandler = async (
 				const { fetchOpenAiCodexRateLimitInfo } = await import("../../integrations/openai-codex/rate-limits")
 				const rateLimits = await fetchOpenAiCodexRateLimitInfo(accessToken, { accountId })
 
-				await provider.postMessageToWebview({
+				provider.postMessageToWebview({
 					type: "openAiCodexRateLimits",
 					values: rateLimits,
 				})
 			} catch (error) {
 				const errorMessage = error instanceof Error ? error.message : String(error)
 				provider.log(`Error fetching OpenAI Codex rate limits: ${errorMessage}`)
-				await provider.postMessageToWebview({
-					type: "openAiCodexRateLimits",
-					error: errorMessage,
-				})
+				provider.postMessageToWebview({
+						type: "openAiCodexRateLimits",
+						error: errorMessage,
+					})
+				}
+				break
 			}
-			break
-		}
-
-		case "openDebugApiHistory":
+	
+			case "requestTaskOrganizationSnapshot": {
+				try {
+					const store = await provider.getTaskOrganizationStore()
+					if (!store) {
+						provider.log("[B09] TaskOrganizationStore unavailable")
+						break
+					}
+					await store.waitForInitialized()
+					const snapshot = store.getState()
+					await provider.postMessageToWebview({
+						type: "taskOrganizationSnapshot",
+						taskOrganizationSnapshot: snapshot,
+					})
+				} catch (error) {
+					const errorMessage = error instanceof Error ? error.message : String(error)
+					provider.log(`[B09] Error fetching task organization snapshot: ${errorMessage}`)
+				}
+				break
+			}
+	
+			case "taskOrganizationMutate": {
+				const request = message.taskOrganizationMutationRequest
+				if (!request) {
+					provider.log("[B09] taskOrganizationMutate received without payload")
+					break
+				}
+				try {
+					const store = await provider.getTaskOrganizationStore()
+					if (!store) {
+						await provider.postMessageToWebview({
+							type: "taskOrganizationMutationResult",
+							taskOrganizationMutationResult: {
+								requestId: request.requestId,
+								success: false,
+								committedRevision: request.baseRevision,
+								error: {
+									code: "TASK_ORG/PERSISTENCE/005",
+									message: "TASK_ORG/handleMutate/001: TaskOrganizationStore unavailable",
+								},
+							},
+						})
+						break
+					}
+					await store.waitForInitialized()
+					const result = await store.mutate(request.mutation, request.baseRevision)
+					// Preserve the original requestId — the store echoes an empty string
+					// when given a bare mutation without an envelope.
+					await provider.postMessageToWebview({
+						type: "taskOrganizationMutationResult",
+						taskOrganizationMutationResult: {
+							...result,
+							requestId: request.requestId,
+						},
+					})
+				} catch (error) {
+					const errorMessage = error instanceof Error ? error.message : String(error)
+					provider.log(`[B09] Error applying task organization mutation: ${errorMessage}`)
+					await provider.postMessageToWebview({
+						type: "taskOrganizationMutationResult",
+						taskOrganizationMutationResult: {
+							requestId: request.requestId,
+							success: false,
+							committedRevision: request.baseRevision,
+							error: {
+								code: "TASK_ORG/PERSISTENCE/005",
+								message: `TASK_ORG/handleMutate/002: ${errorMessage}`,
+							},
+						},
+					})
+				}
+				break
+			}
+	
+			case "taskOrganizationReconcile": {
+				try {
+					const store = await provider.getTaskOrganizationStore()
+					if (!store) {
+						provider.log("[B09] TaskOrganizationStore unavailable for reconcile")
+						break
+					}
+					await store.waitForInitialized()
+					await store.reconcile()
+				} catch (error) {
+					const errorMessage = error instanceof Error ? error.message : String(error)
+					provider.log(`[B09] Error reconciling task organization: ${errorMessage}`)
+				}
+				break
+			}
+	
+			case "openDebugApiHistory":
 		case "openDebugUiHistory": {
 			const currentTask = provider.getCurrentTask()
 			if (!currentTask) {
@@ -3843,7 +3928,7 @@ export const webviewMessageHandler = async (
 						createNewBranch: message.worktreeCreateNewBranch,
 					},
 					(progress) => {
-						void provider.postMessageToWebview({
+						provider.postMessageToWebview({
 							type: "worktreeCopyProgress",
 							copyProgressBytesCopied: progress.bytesCopied,
 							copyProgressItemName: progress.itemName,

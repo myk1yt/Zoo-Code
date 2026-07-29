@@ -109,6 +109,7 @@ import {
 	saveApiMessages,
 	saveTaskMessages,
 	TaskHistoryStore,
+	TaskOrganizationStore,
 	assertValidTransition,
 } from "../task-persistence"
 import { readTaskMessages } from "../task-persistence/taskMessages"
@@ -144,7 +145,7 @@ function runDelegationTransition<T>(
 
 	locks.set(parentTaskId, tail)
 
-	void tail.finally(() => {
+	tail.finally(() => {
 		if (locks.get(parentTaskId) === tail) {
 			locks.delete(parentTaskId)
 		}
@@ -185,6 +186,8 @@ export class ClineProvider
 	private recentTasksCache?: string[]
 	public readonly taskHistoryStore: TaskHistoryStore
 	private taskHistoryStoreInitialized = false
+	private taskOrganizationStore?: TaskOrganizationStore
+	private taskOrganizationStoreInitPromise?: Promise<TaskOrganizationStore>
 	private globalStateWriteThroughTimer: ReturnType<typeof setTimeout> | null = null
 	private static readonly GLOBAL_STATE_WRITE_THROUGH_DEBOUNCE_MS = 5000 // 5 seconds
 	private static readonly PENDING_OPERATION_TIMEOUT_MS = 30000 // 30 seconds
@@ -228,7 +231,7 @@ export class ClineProvider
 		ClineProvider.activeInstances.add(this)
 
 		this.mdmService = mdmService
-		void this.updateGlobalState("codebaseIndexModels", EMBEDDING_MODEL_PROFILES)
+		this.updateGlobalState("codebaseIndexModels", EMBEDDING_MODEL_PROFILES)
 
 		// Initialize the per-task file-based history store.
 		// The globalState write-through is debounced separately (not on every mutation)
@@ -725,7 +728,7 @@ export class ClineProvider
 		this.mcpHub = undefined
 		await this.skillsManager?.dispose()
 		this.skillsManager = undefined
-		await this.marketplaceManager?.cleanup()
+		this.marketplaceManager?.cleanup()
 		this.customModesManager?.dispose()
 		this.taskHistoryStore.dispose()
 		this.flushGlobalStateWriteThrough()
@@ -860,27 +863,9 @@ export class ClineProvider
 			setPanel(webviewView, "sidebar")
 		}
 
-		// Set up webview options with proper resource roots
-		const resourceRoots = [this.contextProxy.extensionUri]
-
-		// Add workspace folders to allow access to workspace files
-		if (vscode.workspace.workspaceFolders) {
-			resourceRoots.push(...vscode.workspace.workspaceFolders.map((folder) => folder.uri))
-		}
-
-		webviewView.webview.options = {
-			enableScripts: true,
-			localResourceRoots: resourceRoots,
-		}
-
-		webviewView.webview.html =
-			this.contextProxy.extensionMode === vscode.ExtensionMode.Development
-				? await this.getHMRHtmlContent(webviewView.webview)
-				: await this.getHtmlContent(webviewView.webview)
-
 		// Initialize out-of-scope variables that need to receive persistent
 		// global state values.
-		await this.getState().then(
+		this.getState().then(
 			({
 				terminalShellIntegrationTimeout = Terminal.defaultShellIntegrationTimeout,
 				terminalShellIntegrationDisabled = false,
@@ -908,6 +893,24 @@ export class ClineProvider
 			},
 		)
 
+		// Set up webview options with proper resource roots
+		const resourceRoots = [this.contextProxy.extensionUri]
+
+		// Add workspace folders to allow access to workspace files
+		if (vscode.workspace.workspaceFolders) {
+			resourceRoots.push(...vscode.workspace.workspaceFolders.map((folder) => folder.uri))
+		}
+
+		webviewView.webview.options = {
+			enableScripts: true,
+			localResourceRoots: resourceRoots,
+		}
+
+		webviewView.webview.html =
+			this.contextProxy.extensionMode === vscode.ExtensionMode.Development
+				? await this.getHMRHtmlContent(webviewView.webview)
+				: await this.getHtmlContent(webviewView.webview)
+
 		// Sets up an event listener to listen for messages passed from the webview view context
 		// and executes code based on the message that is received.
 		this.setWebviewMessageListener(webviewView.webview)
@@ -930,7 +933,7 @@ export class ClineProvider
 			// for this visibility listener panel.
 			const viewStateDisposable = webviewView.onDidChangeViewState(() => {
 				if (this.view?.visible) {
-					void this.postMessageToWebview({ type: "action", action: "didBecomeVisible" })
+					this.postMessageToWebview({ type: "action", action: "didBecomeVisible" })
 				} else {
 					this.logWebviewHiddenDiagnostics()
 				}
@@ -941,7 +944,7 @@ export class ClineProvider
 			// sidebar
 			const visibilityDisposable = webviewView.onDidChangeVisibility(() => {
 				if (this.view?.visible) {
-					void this.postMessageToWebview({ type: "action", action: "didBecomeVisible" })
+					this.postMessageToWebview({ type: "action", action: "didBecomeVisible" })
 				} else {
 					this.logWebviewHiddenDiagnostics()
 				}
@@ -1379,7 +1382,7 @@ export class ClineProvider
 						window.AUDIO_BASE_URI = "${audioUri}"
 						window.MATERIAL_ICONS_BASE_URI = "${materialIconsUri}"
 					</script>
-					<title>Zoo Code</title>
+					<title>Roo Code</title>
 				</head>
 				<body>
 					<div id="root"></div>
@@ -1458,7 +1461,7 @@ export class ClineProvider
 				window.AUDIO_BASE_URI = "${audioUri}"
 				window.MATERIAL_ICONS_BASE_URI = "${materialIconsUri}"
 			</script>
-            <title>Zoo Code</title>
+            <title>Roo Code</title>
           </head>
           <body>
             <noscript>You need to enable JavaScript to run this app.</noscript>
@@ -2139,7 +2142,7 @@ export class ClineProvider
 		const state = await this.getStateToPostToWebview()
 		this.clineMessagesSeq++
 		state.clineMessagesSeq = this.clineMessagesSeq
-		await this.postMessageToWebview({ type: "state", state })
+		this.postMessageToWebview({ type: "state", state })
 	}
 
 	/**
@@ -2155,7 +2158,7 @@ export class ClineProvider
 		this.clineMessagesSeq++
 		state.clineMessagesSeq = this.clineMessagesSeq
 		const { taskHistory: _omit, ...rest } = state
-		await this.postMessageToWebview({ type: "state", state: rest })
+		this.postMessageToWebview({ type: "state", state: rest })
 	}
 
 	/**
@@ -2172,7 +2175,7 @@ export class ClineProvider
 	async postStateToWebviewWithoutClineMessages(): Promise<void> {
 		const state = await this.getStateToPostToWebview()
 		const { clineMessages: _omitMessages, taskHistory: _omitHistory, ...rest } = state
-		await this.postMessageToWebview({ type: "state", state: rest })
+		this.postMessageToWebview({ type: "state", state: rest })
 	}
 
 	/**
@@ -2192,7 +2195,7 @@ export class ClineProvider
 			])
 
 			// Send marketplace data separately
-			await this.postMessageToWebview({
+			this.postMessageToWebview({
 				type: "marketplaceData",
 				organizationMcps: marketplaceResult.organizationMcps || [],
 				marketplaceItems: marketplaceResult.marketplaceItems || [],
@@ -2203,7 +2206,7 @@ export class ClineProvider
 			console.error("Failed to fetch marketplace data:", error)
 
 			// Send empty data on error to prevent UI from hanging
-			await this.postMessageToWebview({
+			this.postMessageToWebview({
 				type: "marketplaceData",
 				organizationMcps: [],
 				marketplaceItems: [],
@@ -2273,6 +2276,54 @@ export class ClineProvider
 			console.error(`Error merging ${commandType} commands:`, error)
 			// Return empty array as fallback to prevent crashes
 			return []
+		}
+	}
+
+	/**
+	 * Returns the TaskOrganizationStore, lazily initializing it on first call.
+	 * The store broadcasts state changes through `postStateToWebview` so the
+	 * webview always has the latest snapshot without polling.
+	 */
+	async getTaskOrganizationStore(): Promise<TaskOrganizationStore | undefined> {
+		if (this.taskOrganizationStore) {
+			return this.taskOrganizationStore
+		}
+		if (this.taskOrganizationStoreInitPromise) {
+			try {
+				return await this.taskOrganizationStoreInitPromise
+			} catch {
+				return undefined
+			}
+		}
+		const initPromise = (async (): Promise<TaskOrganizationStore> => {
+			const store = new TaskOrganizationStore(this.contextProxy.globalStorageUri.fsPath, {
+				onChange: async () => {
+					try {
+						await this.postStateToWebview()
+					} catch (error) {
+						this.log(
+							`[ClineProvider] postStateToWebview after task organization change failed: ${
+								error instanceof Error ? error.message : String(error)
+							}`,
+						)
+					}
+				},
+			})
+			await store.initialize()
+			this.taskOrganizationStore = store
+			return store
+		})()
+		this.taskOrganizationStoreInitPromise = initPromise
+		try {
+			return await initPromise
+		} catch (error) {
+			this.log(
+				`[ClineProvider] Failed to initialize TaskOrganizationStore: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			)
+			this.taskOrganizationStoreInitPromise = undefined
+			return undefined
 		}
 	}
 
@@ -2578,6 +2629,7 @@ export class ClineProvider
 			platform: process.platform,
 			arch: process.arch,
 			debug: vscode.workspace.getConfiguration(Package.name).get<boolean>("debug", false),
+			taskOrganizationSnapshot: this.taskOrganizationStore?.getState(),
 		}
 	}
 
@@ -3002,7 +3054,7 @@ export class ClineProvider
 				if (currentManager === this.getCurrentWorkspaceCodeIndexManager()) {
 					// Get the full status from the manager to ensure we have all fields correctly formatted
 					const fullStatus = currentManager.getCurrentStatus()
-					void this.postMessageToWebview({
+					this.postMessageToWebview({
 						type: "indexingStatusUpdate",
 						values: fullStatus,
 					})
@@ -3014,7 +3066,7 @@ export class ClineProvider
 			}
 
 			// Send initial status for the current workspace
-			void this.postMessageToWebview({
+			this.postMessageToWebview({
 				type: "indexingStatusUpdate",
 				values: currentManager.getCurrentStatus(),
 			})
