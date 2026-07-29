@@ -3,10 +3,10 @@ import OpenAI from "openai"
 
 import {
 	isRetiredProvider,
-	providerIdentifiers,
-	retiredProviderIdentifiers,
 	type ProviderSettings,
 	type ModelInfo,
+	type ResolvedToolCallPolicy,
+	type ModelToolCallCapabilities,
 } from "@roo-code/types"
 
 import { getRouterRemovalMessage } from "../core/config/routerRemoval"
@@ -143,10 +143,136 @@ export interface ApiHandler {
 	countTokens(content: Array<Anthropic.Messages.ContentBlockParam>): Promise<number>
 }
 
+/**
+ * Providers that use the OpenAI-compatible API format and natively support
+ * parallel tool calls via the `parallel_tool_calls` request field.
+ * When a model from one of these providers has no explicit
+ * `toolCallCapabilities`, we preserve the pre-existing parallel behavior.
+ */
+const OPENAI_COMPATIBLE_PARALLEL_PROVIDERS = new Set<string>([
+	"openai",
+	"openai-native",
+	"openai-codex",
+	"openrouter",
+	"deepseek",
+	"qwen-code",
+	"moonshot",
+	"kimi-code",
+	"mistral",
+	"requesty",
+	"unbound",
+	"xai",
+	"litellm",
+	"sambanova",
+	"zai",
+	"fireworks",
+	"friendli",
+	"vercel-ai-gateway",
+	"opencode-go",
+	"kenari",
+	"zoo-gateway",
+	"minimax",
+	"baseten",
+	"poe",
+])
+
+/**
+ * Providers that use the Anthropic API format and natively support
+ * parallel tool calls via `disable_parallel_tool_use`.
+ * When a model from one of these providers has no explicit
+ * `toolCallCapabilities`, we preserve the pre-existing parallel behavior.
+ */
+const ANTHROPIC_PARALLEL_PROVIDERS = new Set<string>(["anthropic", "bedrock", "vertex"])
+
+/**
+ * Resolve the tool-call policy for a given model and provider.
+ *
+ * This is a pure function: given the model info and provider name, it returns
+ * a {@link ResolvedToolCallPolicy} that describes whether parallel tool calls
+ * should be enabled, the max calls per turn, and how enforcement is applied.
+ *
+ * Resolution logic:
+ * 1. If the model declares `toolCallCapabilities` with `supportsParallelToolCalls: false`,
+ *    the policy is "single" with local enforcement (and provider enforcement when
+ *    the request control is not "none").
+ * 2. If the model declares `supportsParallelToolCalls: true` with a known request
+ *    control ("openai" or "anthropic"), the policy is "parallel" with provider enforcement.
+ * 3. If capabilities are unknown or absent:
+ *    a. If the provider is known to be OpenAI-compatible or Anthropic, preserve
+ *       the pre-existing parallel behavior (parallel, unbounded, provider enforcement).
+ *    b. Otherwise (e.g. mimo, unknown providers), apply a conservative "single"
+ *       default with local enforcement to prevent malformed parallel calls.
+ *
+ * @param modelInfo - The ModelInfo for the active model.
+ * @param providerName - The provider identifier string (e.g. "mimo", "anthropic", "openai").
+ * @returns A resolved tool-call policy.
+ */
+export function resolveToolCallPolicy(modelInfo: ModelInfo, providerName?: string): ResolvedToolCallPolicy {
+	const capabilities: ModelToolCallCapabilities | undefined = modelInfo.toolCallCapabilities
+
+	// Case 1: Model explicitly declares it does NOT support parallel tool calls.
+	if (capabilities && capabilities.supportsParallelToolCalls === false) {
+		const enforcement = capabilities.parallelToolCallsRequestControl === "none" ? "local" : "provider-and-local"
+		return {
+			generation: "single",
+			maxCallsPerTurn: 1,
+			enforcement,
+			source: "model-capability",
+		}
+	}
+
+	// Case 2: Model explicitly declares it DOES support parallel tool calls
+	// and has a known request control mechanism.
+	if (
+		capabilities &&
+		capabilities.supportsParallelToolCalls === true &&
+		(capabilities.parallelToolCallsRequestControl === "openai" ||
+			capabilities.parallelToolCallsRequestControl === "anthropic")
+	) {
+		return {
+			generation: "parallel",
+			maxCallsPerTurn: "unbounded",
+			enforcement: "provider",
+			source: "model-capability",
+		}
+	}
+
+	// Case 3: Unknown or absent capabilities — use provider-based fallback.
+	// Known-parallel providers (OpenAI-compatible and Anthropic) preserve their
+	// pre-existing parallel behavior. Unknown or explicitly non-parallel providers
+	// (e.g. mimo) get a conservative single-call default.
+	if (providerName && OPENAI_COMPATIBLE_PARALLEL_PROVIDERS.has(providerName)) {
+		return {
+			generation: "parallel",
+			maxCallsPerTurn: "unbounded",
+			enforcement: "provider",
+			source: "provider-default",
+		}
+	}
+
+	if (providerName && ANTHROPIC_PARALLEL_PROVIDERS.has(providerName)) {
+		return {
+			generation: "parallel",
+			maxCallsPerTurn: "unbounded",
+			enforcement: "provider",
+			source: "provider-default",
+		}
+	}
+
+	// Conservative default for unknown providers (e.g. mimo, ollama, lmstudio,
+	// vscode-lm, gemini, fake-ai) or when providerName is absent.
+	return {
+		generation: "single",
+		maxCallsPerTurn: 1,
+		enforcement: "local",
+		source: "provider-default",
+	}
+}
+
 export function buildApiHandler(configuration: ProviderSettings): ApiHandler {
 	const { apiProvider, ...options } = configuration
 
-	if (apiProvider === retiredProviderIdentifiers.roo) {
+	if (apiProvider === "roo") {
 		throw new Error(getRouterRemovalMessage())
 	}
 
@@ -157,73 +283,73 @@ export function buildApiHandler(configuration: ProviderSettings): ApiHandler {
 	}
 
 	switch (apiProvider) {
-		case providerIdentifiers.anthropic:
+		case "anthropic":
 			return new AnthropicHandler(options)
-		case providerIdentifiers.openrouter:
+		case "openrouter":
 			return new OpenRouterHandler(options)
-		case providerIdentifiers.bedrock:
+		case "bedrock":
 			return new AwsBedrockHandler(options)
-		case providerIdentifiers.vertex:
+		case "vertex":
 			return options.apiModelId?.startsWith("claude")
 				? new AnthropicVertexHandler(options)
 				: new VertexHandler(options)
-		case providerIdentifiers.openai:
+		case "openai":
 			return new OpenAiHandler(options)
-		case providerIdentifiers.ollama:
+		case "ollama":
 			return new NativeOllamaHandler(options)
-		case providerIdentifiers.lmstudio:
+		case "lmstudio":
 			return new LmStudioHandler(options)
-		case providerIdentifiers.gemini:
+		case "gemini":
 			return new GeminiHandler(options)
-		case providerIdentifiers.openaiCodex:
+		case "openai-codex":
 			return new OpenAiCodexHandler(options)
-		case providerIdentifiers.openaiNative:
+		case "openai-native":
 			return new OpenAiNativeHandler(options)
-		case providerIdentifiers.deepseek:
+		case "deepseek":
 			return new DeepSeekHandler(options)
-		case providerIdentifiers.qwenCode:
+		case "qwen-code":
 			return new QwenCodeHandler(options)
-		case providerIdentifiers.moonshot:
+		case "moonshot":
 			return new MoonshotHandler(options)
-		case providerIdentifiers.kimiCode:
+		case "kimi-code":
 			return new KimiCodeHandler(options)
-		case providerIdentifiers.vscodeLm:
+		case "vscode-lm":
 			return new VsCodeLmHandler(options)
-		case providerIdentifiers.mistral:
+		case "mistral":
 			return new MistralHandler(options)
-		case providerIdentifiers.requesty:
+		case "requesty":
 			return new RequestyHandler(options)
-		case providerIdentifiers.unbound:
+		case "unbound":
 			return new UnboundHandler(options)
-		case providerIdentifiers.fakeAi:
+		case "fake-ai":
 			return new FakeAIHandler(options)
-		case providerIdentifiers.xai:
+		case "xai":
 			return new XAIHandler(options)
-		case providerIdentifiers.litellm:
+		case "litellm":
 			return new LiteLLMHandler(options)
-		case providerIdentifiers.sambanova:
+		case "sambanova":
 			return new SambaNovaHandler(options)
-		case providerIdentifiers.mimo:
+		case "mimo":
 			return new MimoHandler(options)
-		case providerIdentifiers.zai:
+		case "zai":
 			return new ZAiHandler(options)
-		case providerIdentifiers.fireworks:
+		case "fireworks":
 			return new FireworksHandler(options)
-		case providerIdentifiers.friendli:
+		case "friendli":
 			return new FriendliHandler(options)
-		case providerIdentifiers.vercelAiGateway:
+		case "vercel-ai-gateway":
 			return new VercelAiGatewayHandler(options)
-		case providerIdentifiers.opencodeGo:
+		case "opencode-go":
 			return new OpencodeGoHandler(options)
-		case providerIdentifiers.kenari:
+		case "kenari":
 			return new KenariHandler(options)
-		case providerIdentifiers.zooGateway:
+		case "zoo-gateway":
 			return new ZooGatewayHandler(options)
-		case providerIdentifiers.minimax:
+		case "minimax":
 			return new MiniMaxHandler(options)
-		case providerIdentifiers.baseten:
+		case "baseten":
 			return new BasetenHandler(options)
-		case providerIdentifiers.poe:
+		case "poe":
 			return new PoeHandler(options)
 		default:
 			return new AnthropicHandler(options)

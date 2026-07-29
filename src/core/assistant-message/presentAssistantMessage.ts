@@ -1,6 +1,14 @@
 import { serializeError } from "serialize-error"
 import { Anthropic } from "@anthropic-ai/sdk"
 
+import {
+	createToolErrorInterceptor,
+	getErrorTitleFromGuided,
+	getTaskErrorState,
+	validateCwdParameter,
+	validateNestedParams,
+} from "../tools/error-interception"
+
 import type { ToolName, ClineAsk, ToolProgressStatus } from "@roo-code/types"
 import { ConsecutiveMistakeError, TelemetryEventName } from "@roo-code/types"
 import { TelemetryService } from "@roo-code/telemetry"
@@ -10,9 +18,13 @@ import { t } from "../../i18n"
 
 import { defaultModeSlug, getModeBySlug } from "../../shared/modes"
 import type { ToolParamName, ToolResponse, ToolUse, McpToolUse } from "../../shared/tools"
+import type { AssistantMessageContent } from "./types"
 
 import { AskIgnoredError } from "../task/AskIgnoredError"
 import { Task } from "../task/Task"
+import { NativeToolCallParser, type NativeToolParseFailure } from "./NativeToolCallParser"
+import { selectExecutableCall, emitMaxOneEnforcementTelemetry } from "./ToolCallRetentionPolicy"
+import { resolveToolCallPolicy } from "../../api"
 
 import { listFilesTool } from "../tools/ListFilesTool"
 import { readFileTool } from "../tools/ReadFileTool"
@@ -40,6 +52,14 @@ import { codebaseSearchTool } from "../tools/CodebaseSearchTool"
 
 import { formatResponse } from "../prompts/responses"
 import { sanitizeToolUseId } from "../../utils/tool-id"
+
+/**
+ * Module-scoped interceptor singleton. A single shared instance keeps the
+ * per-task WeakMap alive across content blocks within the same Task, so
+ * occurrence counters and circuit breakers persist between tool blocks.
+ * Recreating one per block would reset all per-task counters to empty.
+ */
+const toolErrorInterceptor = createToolErrorInterceptor()
 
 /**
  * Processes and presents assistant message content to the user interface.
@@ -84,7 +104,7 @@ export async function presentAssistantMessage(cline: Task) {
 		return
 	}
 
-	let block: any
+	let block: AssistantMessageContent | undefined
 	try {
 		// Performance optimization: Use shallow copy instead of deep clone.
 		// The block is used read-only throughout this function - we never mutate its properties.
@@ -101,12 +121,18 @@ export async function presentAssistantMessage(cline: Task) {
 		return
 	}
 
+	if (!block) {
+		cline.presentAssistantMessageLocked = false
+		return
+	}
+
 	switch (block.type) {
 		case "mcp_tool_use": {
 			// Handle native MCP tool calls (from mcp_serverName_toolName dynamic tools)
 			// These are converted to the same execution path as use_mcp_tool but preserve
 			// their original name in API history
 			const mcpBlock = block as McpToolUse
+			const interceptor = toolErrorInterceptor
 
 			if (cline.didRejectTool) {
 				// For native protocol, we must send a tool_result for every tool_use to avoid API errors
@@ -116,10 +142,13 @@ export async function presentAssistantMessage(cline: Task) {
 					: `MCP tool ${mcpBlock.name} was interrupted and not executed due to user rejecting a previous tool.`
 
 				if (toolCallId) {
+					// Consume any pending native protocol guide so it cannot leak
+					// into later turns when this early tool_result path is taken.
+					const rejectedMcpGuide = getTaskErrorState(cline).consumePendingNativeProtocolGuide()
 					cline.pushToolResultToUserContent({
 						type: "tool_result",
 						tool_use_id: sanitizeToolUseId(toolCallId),
-						content: errorMessage,
+						content: rejectedMcpGuide ? `${errorMessage}\n\n${rejectedMcpGuide}` : errorMessage,
 						is_error: true,
 					})
 				}
@@ -133,7 +162,7 @@ export async function presentAssistantMessage(cline: Task) {
 			// Store approval feedback to merge into tool result (GitHub #10465)
 			let approvalFeedback: { text: string; images?: string[] } | undefined
 
-			const pushToolResult = (content: ToolResponse, feedbackImages?: string[]) => {
+			const rawPushToolResult = (content: ToolResponse, feedbackImages?: string[]) => {
 				if (hasToolResult) {
 					console.warn(
 						`[presentAssistantMessage] Skipping duplicate tool_result for mcp_tool_use: ${toolCallId}`,
@@ -167,6 +196,12 @@ export async function presentAssistantMessage(cline: Task) {
 				}
 
 				if (toolCallId) {
+					// Merge any pending XML_NATIVE_DUAL_PROTOCOL guide into this
+					// tool_result and clear it so it cannot leak into later turns.
+					const mcpPendingGuide = getTaskErrorState(cline).consumePendingNativeProtocolGuide()
+					if (mcpPendingGuide) {
+						resultContent = `${resultContent}\n\n${mcpPendingGuide}`
+					}
 					cline.pushToolResultToUserContent({
 						type: "tool_result",
 						tool_use_id: sanitizeToolUseId(toolCallId),
@@ -219,7 +254,7 @@ export async function presentAssistantMessage(cline: Task) {
 				return true
 			}
 
-			const handleError = async (action: string, error: Error) => {
+			const rawHandleError = async (action: string, error: Error) => {
 				// Silently ignore AskIgnoredError - this is an internal control flow
 				// signal, not an actual error. It occurs when a newer ask supersedes an older one.
 				if (error instanceof AskIgnoredError) {
@@ -230,8 +265,25 @@ export async function presentAssistantMessage(cline: Task) {
 					"error",
 					`Error ${action}:\n${error.message ?? JSON.stringify(serializeError(error), null, 2)}`,
 				)
-				pushToolResult(formatResponse.toolError(errorString))
+				rawPushToolResult(formatResponse.toolError(errorString))
 			}
+
+			const { decoratedHandleError: handleError, decoratedPushToolResult: pushToolResult } =
+				interceptor.createInterceptor(
+					cline,
+					{ handleError: rawHandleError, pushToolResult: rawPushToolResult },
+					{
+						taskId: cline.taskId,
+						toolCallId,
+						toolName: mcpBlock.name,
+						source: "tool_result",
+						stage: "result",
+						metadata: {
+							server: mcpBlock.serverName,
+							tool: mcpBlock.toolName,
+						},
+					},
+				)
 
 			if (!mcpBlock.partial) {
 				cline.recordToolUsage("use_mcp_tool") // Record as use_mcp_tool for analytics
@@ -292,30 +344,75 @@ export async function presentAssistantMessage(cline: Task) {
 				content = content.replace(/\s?<\/thinking>/g, "")
 			}
 
+			// XML_NATIVE_DUAL_PROTOCOL detection: only on complete text blocks.
+			// If this text contains executable XML tool markup AND the same
+			// assistant turn also contains a native tool_use block, strip only
+			// the markup segment from the rendered text and queue one bounded
+			// protocol guide to merge into the native tool's result.
+			if (content && !block.partial && content.length <= 10_000) {
+				// Length cap (4000 chars) on each XML segment prevents catastrophic
+				// backtracking when the input contains malformed/unterminated tags.
+				const XML_TOOL_MARKUP =
+					/<tool_call>[\s\S]{0,4000}?(<\/tool_call>|$)|<invoke>[\s\S]{0,4000}?(<\/invoke>|$)|<function=[^>]+>[\s\S]{0,4000}?(<\/function>|$)|<parameter=[^>]+>[\s\S]{0,4000}?(<\/parameter>|$)/g
+				const hasXmlMarkup = /<(tool_call|invoke|function=[^>]+|parameter=[^>]+)>/.test(content)
+				if (hasXmlMarkup) {
+					const nativeToolPresent = cline.assistantMessageContent.some(
+						(b: AssistantMessageContent) =>
+							(b.type === "tool_use" || b.type === "mcp_tool_use") &&
+							!b.partial &&
+							(b.id !== undefined || b.type === "mcp_tool_use"),
+					)
+					if (nativeToolPresent) {
+						// Strip the XML markup from the user-visible text.
+						content = content.replace(XML_TOOL_MARKUP, "").trim()
+						// Queue one protocol guide on the Task-scoped error state so
+						// the next native tool_result carries the warning.
+						const taskErrorState = getTaskErrorState(cline)
+						const occurrence = taskErrorState.incrementOccurrence("INVALID_TOOL_PROTOCOL")
+						taskErrorState.setFingerprint(
+							"INVALID_TOOL_PROTOCOL",
+							"INVALID_TOOL_PROTOCOL|XML_NATIVE_DUAL_PROTOCOL|text-block",
+						)
+						taskErrorState.setPendingNativeProtocolGuide(
+							`[XML_NATIVE_DUAL_PROTOCOL occurrence=${occurrence}] XML tool calls are not supported. ` +
+								`Use native tool_use only. The XML markup was removed from the visible text; only the native tool call was executed.`,
+						)
+					}
+				}
+			}
+
 			await cline.say("text", content, undefined, block.partial)
 			break
 		}
 		case "tool_use": {
 			// Native tool calling is the only supported tool calling mechanism.
 			// A tool_use block without an id is invalid and cannot be executed.
-			const toolCallId = (block as any).id as string | undefined
+			const interceptor = toolErrorInterceptor
+			const toolCallId = block.id
 			if (!toolCallId) {
 				const errorMessage =
 					"Invalid tool call: missing tool_use.id. XML tool calls are no longer supported. Remove any XML tool markup (e.g. <read_file>...</read_file>) and use native tool calling instead."
 				// Record a tool error for visibility/telemetry. Use the reported tool name if present.
 				try {
-					if (
-						typeof (cline as any).recordToolError === "function" &&
-						typeof (block as any).name === "string"
-					) {
-						;(cline as any).recordToolError((block as any).name as ToolName, errorMessage)
+					if (typeof cline.recordToolError === "function" && typeof block.name === "string") {
+						cline.recordToolError(block.name, errorMessage)
 					}
-				} catch {
-					// Best-effort only
+				} catch (recordErr) {
+					console.warn(
+						"[ErrorInterception] Failed to record tool error:",
+						recordErr instanceof Error ? recordErr.message : recordErr,
+					)
 				}
 				cline.consecutiveMistakeCount++
-				await cline.say("error", errorMessage)
-				cline.userMessageContent.push({ type: "text", text: errorMessage })
+				const guided = interceptor.transformError(cline, {
+					source: "parser",
+					stage: "parse",
+					taskId: cline.taskId,
+					metadata: { missingToolCallId: true },
+				})
+				const errorTitle = getErrorTitleFromGuided(guided)
+				await cline.say("error", `${errorTitle}\n\n${guided ?? errorMessage}`)
+				cline.userMessageContent.push({ type: "text", text: guided ?? errorMessage })
 				cline.didAlreadyUseTool = true
 				break
 			}
@@ -332,7 +429,10 @@ export async function presentAssistantMessage(cline: Task) {
 						// Prefer native typed args when available; fall back to legacy params
 						// Check if nativeArgs exists (native protocol)
 						if (block.nativeArgs) {
-							return readFileTool.getReadFileToolDescription(block.name, block.nativeArgs)
+							return readFileTool.getReadFileToolDescription(
+								block.name,
+								block.nativeArgs as { path?: string },
+							)
 						}
 						return readFileTool.getReadFileToolDescription(block.name, block.params)
 					case "write_to_file":
@@ -395,10 +495,13 @@ export async function presentAssistantMessage(cline: Task) {
 					? `Skipping tool ${toolDescription()} due to user rejecting a previous tool.`
 					: `Tool ${toolDescription()} was interrupted and not executed due to user rejecting a previous tool.`
 
+				// Consume any pending native protocol guide so it cannot leak
+				// into later turns when this early tool_result path is taken.
+				const rejectedGuide = getTaskErrorState(cline).consumePendingNativeProtocolGuide()
 				cline.pushToolResultToUserContent({
 					type: "tool_result",
 					tool_use_id: sanitizeToolUseId(toolCallId),
-					content: errorMessage,
+					content: rejectedGuide ? `${errorMessage}\n\n${rejectedGuide}` : errorMessage,
 					is_error: true,
 				})
 
@@ -419,23 +522,98 @@ export async function presentAssistantMessage(cline: Task) {
 				const customTool = stateExperiments?.customTools ? customToolRegistry.get(block.name) : undefined
 				const isKnownTool = isValidToolName(String(block.name), stateExperiments)
 				if (isKnownTool && !block.nativeArgs && !customTool) {
-					const errorMessage =
-						`Invalid tool call for '${block.name}': missing nativeArgs. ` +
-						`This usually means the model streamed invalid or incomplete arguments and the call could not be finalized.`
+					// Consume the typed parser failure descriptor. This provides a
+					// precise failure kind (json_syntax, missing_required_arguments,
+					// or invalid_argument_shape) instead of relying on raw error
+					// strings. The legacy consumeParseError() string is still
+					// consumed for backward-compatible diagnostics.
+					const parseFailure: NativeToolParseFailure | undefined =
+						NativeToolCallParser.consumeParseFailure(toolCallId)
+					// Also consume the legacy string for human-readable diagnostics.
+					NativeToolCallParser.consumeParseError(toolCallId)
+
+					// Derive safe sibling facts: inspect same-turn tool_use blocks
+					// with distinct call identifiers. If a valid sibling exists
+					// alongside this malformed sibling, set validSiblingPresent.
+					// Do NOT forward sibling identifiers or argument values.
+					const validSiblingPresent = cline.assistantMessageContent.some(
+						(sibling: AssistantMessageContent) =>
+							sibling.type === "tool_use" &&
+							sibling.id !== toolCallId &&
+							!sibling.partial &&
+							sibling.nativeArgs !== undefined,
+					)
+
+					// Route based on the typed failure kind. Each kind maps to a
+					// dedicated error-interception pattern:
+					//   json_syntax → PARSER_FAILURE_JSON_SYNTAX
+					//   missing_required_arguments → PARSER_FAILURE_MISSING_ARGS
+					//   invalid_argument_shape → PARSER_FAILURE_INVALID_SHAPE
+					// When no typed failure is recorded (e.g. the parser never
+					// ran), fall back to the legacy missingNativeArgs signal which
+					// routes to PARAM_MISSING.
+					const parseFailureKind = parseFailure?.kind
+					const metadata: Record<string, unknown> = parseFailureKind
+						? {
+								parseFailureKind,
+								emptyArguments: parseFailure?.emptyArguments ?? false,
+								missingRequiredParameters: parseFailure?.missingParameters ?? [],
+								validSiblingPresent,
+							}
+						: { missingNativeArgs: true, validSiblingPresent }
+
+					// Build a concise, user-visible error message based on the
+					// failure kind. The user sees a clear tool name, failure kind,
+					// and concise reason.
+					const failureDescription = parseFailure
+						? parseFailure.kind === "json_syntax"
+							? `arguments could not be parsed as JSON (syntax error).`
+							: parseFailure.kind === "missing_required_arguments"
+								? `missing required arguments: ${(parseFailure.missingParameters ?? []).join(", ") || "unknown"}.`
+								: `arguments had an invalid structural shape.`
+						: `missing nativeArgs. The model streamed invalid or incomplete arguments and the call could not be finalized.`
+
+					const errorMessage = `Invalid tool call for '${block.name}': ${failureDescription}`
 
 					cline.consecutiveMistakeCount++
 					try {
 						cline.recordToolError(block.name as ToolName, errorMessage)
-					} catch {
-						// Best-effort only
+					} catch (recordErr) {
+						console.warn(
+							"[ErrorInterception] Failed to record tool error:",
+							recordErr instanceof Error ? recordErr.message : recordErr,
+						)
 					}
 
+					// Convert the parser failure into a structured guided payload.
+					// The interceptor classifies the signal using the parseFailureKind
+					// metadata and routes to the appropriate PARSER_FAILURE_* pattern.
+					const guided = interceptor.transformError(cline, {
+						source: "parser",
+						stage: "parse",
+						taskId: cline.taskId,
+						toolCallId,
+						toolName: block.name,
+						metadata,
+					})
+
 					// Push tool_result directly without setting didAlreadyUseTool so streaming can
-					// continue gracefully.
+					// continue gracefully. The existing pushToolResultToUserContent()
+					// dedups by tool_use_id, ensuring exactly one error result per
+					// failed identifier.
+					const missingArgsGuide = getTaskErrorState(cline).consumePendingNativeProtocolGuide()
+					const missingArgsBase = guided ?? formatResponse.toolError(errorMessage)
+					// Show the invalid/missing args error to the user in the UI chat.
+					// The AI receives the guided payload below; the user must also
+					// see what went wrong (design principle: both must happen).
+					const missingArgsUserMessage = guided
+						? `${getErrorTitleFromGuided(guided)}\n\n${guided}`
+						: `Invalid tool call: ${errorMessage}`
+					await cline.say("error", missingArgsUserMessage)
 					cline.pushToolResultToUserContent({
 						type: "tool_result",
 						tool_use_id: sanitizeToolUseId(toolCallId),
-						content: formatResponse.toolError(errorMessage),
+						content: missingArgsGuide ? `${missingArgsBase}\n\n${missingArgsGuide}` : missingArgsBase,
 						is_error: true,
 					})
 
@@ -443,10 +621,122 @@ export async function presentAssistantMessage(cline: Task) {
 				}
 			}
 
+			// Max-one enforcement: under a single-call policy, at most one
+			// structurally valid call may execute per assistant turn. If two
+			// or more valid side-effecting calls arrive, neither auto-executes
+			// — both receive error results instructing the model to resubmit
+			// one call. This prevents ambiguous side-effect ordering when a
+			// provider violates the single-call contract.
+			//
+			// This gate runs AFTER the malformed-call check above (which
+			// handles calls without nativeArgs). Only calls that passed
+			// structural validation reach this point.
+			if (!block.partial) {
+				const resolvedPolicy = resolveToolCallPolicy(
+					cline.api.getModel().info,
+					cline.apiConfiguration?.apiProvider,
+				)
+
+				if (resolvedPolicy.maxCallsPerTurn === 1) {
+					// Collect all tool_use blocks in this assistant turn to
+					// evaluate how many valid candidates exist.
+					const allCalls = cline.assistantMessageContent
+						.filter(
+							(b: AssistantMessageContent): b is ToolUse =>
+								b.type === "tool_use",
+						)
+						.map((b: ToolUse) => ({
+							callId: b.id ?? "",
+							toolName: b.name,
+							hasNativeArgs: b.nativeArgs !== undefined,
+							isPartial: b.partial,
+						}))
+
+					const selection = selectExecutableCall({
+						calls: allCalls,
+						maxCallsPerTurn: 1,
+					})
+
+					// If this call is in the rejected list (multiple valid
+					// candidates under single policy), emit an error result
+					// instead of executing.
+					if (selection.rejectedCallIds.includes(toolCallId)) {
+						const maxOneErrorMessage =
+							`Multiple valid tool calls were emitted in a single turn under a single-call policy. ` +
+							`This call was not executed to prevent ambiguous side-effect ordering. ` +
+							`Please resubmit only one tool call per turn. ` +
+							`[POLICY/max-one-enforcement/001]`
+	
+						// Emit telemetry for the max-one enforcement rejection.
+						// Only counts and metadata are sent — no call ID, tool
+						// name, argument values, or command strings.
+						emitMaxOneEnforcementTelemetry({
+							taskId: cline.taskId,
+							provider: cline.apiConfiguration?.apiProvider ?? "unknown",
+							model: cline.api.getModel().id,
+							policySource: resolvedPolicy.source,
+							maxCallsPerTurn: resolvedPolicy.maxCallsPerTurn,
+							enforcement: resolvedPolicy.enforcement,
+							callCount: allCalls.length,
+							ghostDroppedCount: 0,
+							errorResultCount: selection.rejectedCallIds.length,
+							parallelToolCallsRequested: resolvedPolicy.generation === "parallel",
+						})
+	
+						cline.consecutiveMistakeCount++
+						try {
+							cline.recordToolError(block.name as ToolName, maxOneErrorMessage)
+						} catch (recordErr) {
+							console.warn(
+								"[ErrorInterception] Failed to record tool error:",
+								recordErr instanceof Error ? recordErr.message : recordErr,
+							)
+						}
+
+						const maxOneGuided = interceptor.transformError(cline, {
+							source: "parser",
+							stage: "parse",
+							taskId: cline.taskId,
+							toolCallId,
+							toolName: block.name,
+							metadata: {
+								maxOneEnforcement: true,
+								reason: selection.reason,
+								rejectedCallCount: selection.rejectedCallIds.length,
+							},
+						})
+
+						const maxOneBase = maxOneGuided ?? formatResponse.toolError(maxOneErrorMessage)
+						const maxOneUserMessage = maxOneGuided
+							? `${getErrorTitleFromGuided(maxOneGuided)}\n\n${maxOneGuided}`
+							: maxOneErrorMessage
+						await cline.say("error", maxOneUserMessage)
+						cline.pushToolResultToUserContent({
+							type: "tool_result",
+							tool_use_id: sanitizeToolUseId(toolCallId),
+							content: maxOneBase,
+							is_error: true,
+						})
+
+						break
+					}
+
+					// If a different call was selected as the executable one,
+					// this call should not execute. However, since execution is
+					// serial and each call is processed in order, the selected
+					// call will execute when its own block is processed. If
+					// this is NOT the selected call but is valid, it means
+					// another valid call exists — but selectExecutableCall
+					// would have put both in rejectedCallIds. So if we reach
+					// here with an executableCallId that is not ours, it's a
+					// single-candidate scenario where we are that candidate.
+				}
+			}
+
 			// Store approval feedback to merge into tool result (GitHub #10465)
 			let approvalFeedback: { text: string; images?: string[] } | undefined
 
-			const pushToolResult = (content: ToolResponse) => {
+			const rawPushToolResult = (content: ToolResponse) => {
 				// Native tool calling: only allow ONE tool_result per tool call
 				if (hasToolResult) {
 					console.warn(
@@ -466,6 +756,14 @@ export async function presentAssistantMessage(cline: Task) {
 					resultContent =
 						textBlocks.map((item) => (item as Anthropic.TextBlockParam).text).join("\n") ||
 						"(tool did not return anything)"
+				}
+
+				// Merge any pending XML_NATIVE_DUAL_PROTOCOL guide into this native
+				// tool's result. The native result remains primary; the warning is
+				// appended once and then cleared so it cannot leak into later turns.
+				const pendingGuide = getTaskErrorState(cline).consumePendingNativeProtocolGuide()
+				if (pendingGuide) {
+					resultContent = `${resultContent}\n\n${pendingGuide}`
 				}
 
 				// Merge approval feedback into tool result (GitHub #10465)
@@ -537,7 +835,7 @@ export async function presentAssistantMessage(cline: Task) {
 				return await askApproval("tool", toolMessage)
 			}
 
-			const handleError = async (action: string, error: Error) => {
+			const rawHandleError = async (action: string, error: Error) => {
 				// Silently ignore AskIgnoredError - this is an internal control flow
 				// signal, not an actual error. It occurs when a newer ask supersedes an older one.
 				if (error instanceof AskIgnoredError) {
@@ -550,8 +848,22 @@ export async function presentAssistantMessage(cline: Task) {
 					`Error ${action}:\n${error.message ?? JSON.stringify(serializeError(error), null, 2)}`,
 				)
 
-				pushToolResult(formatResponse.toolError(errorString))
+				rawPushToolResult(formatResponse.toolError(errorString))
 			}
+
+			const { decoratedHandleError: handleError, decoratedPushToolResult: pushToolResult } =
+				interceptor.createInterceptor(
+					cline,
+					{ handleError: rawHandleError, pushToolResult: rawPushToolResult },
+					{
+						taskId: cline.taskId,
+						toolCallId,
+						toolName: block.name,
+						source: "tool_result",
+						stage: "result",
+						metadata: { toolName: block.name },
+					},
+				)
 
 			if (!block.partial) {
 				// Check if this is a custom tool - if so, record as "custom_tool" (like MCP tools)
@@ -567,6 +879,86 @@ export async function presentAssistantMessage(cline: Task) {
 						taskId: cline.taskId,
 						model: modelInfo?.id,
 					})
+				}
+			}
+
+			// Structural preflight: detect malformed native tool arguments before
+			// approval or execution. CWD_OBJECT_MISUSE and NESTED_PARAM_OVERFLOW
+			// signals block the malformed call and return exactly one guided
+			// tool_result. Partial blocks are never inspected.
+			if (!block.partial && block.nativeArgs) {
+				const taskErrorState = getTaskErrorState(cline)
+				const structuralSignals = [
+					...(block.name === "execute_command"
+						? [validateCwdParameter(block.nativeArgs as Record<string, unknown>, String(block.name))]
+						: []),
+					validateNestedParams(block.nativeArgs as Record<string, unknown>, String(block.name)),
+				].filter((s): s is NonNullable<typeof s> => s != null)
+
+				if (structuralSignals.length > 0) {
+					const signal = structuralSignals[0]
+					const variant = (signal.metadata?.variant as string | undefined) ?? "STRUCTURAL_MISUSE"
+					const fingerprint = `PARAM_TYPE_MISMATCH|${variant}|${String(block.name)}|${(signal.metadata?.parameter as string | undefined) ?? ""}`
+					// If the structural failure shape changed (different tool, variant, or
+					// parameter), reset the circuit so the new shape gets fresh guidance
+					// instead of inheriting MODEL_STUCK_LOOP from an unrelated pattern.
+					if (taskErrorState.getFingerprint("PARAM_TYPE_MISMATCH") !== fingerprint) {
+						taskErrorState.reset("PARAM_TYPE_MISMATCH")
+						// Also reset the interceptor's per-task occurrence counter
+						// so both display channels restart at 1. The coordinated
+						// reset API ensures the interceptor's WeakMap state and
+						// the TaskErrorState singleton stay in sync.
+						interceptor.resetTaskState(cline, "PARAM_TYPE_MISMATCH")
+					}
+					taskErrorState.setFingerprint("PARAM_TYPE_MISMATCH", fingerprint)
+					const occurrence = taskErrorState.incrementOccurrence("PARAM_TYPE_MISMATCH")
+					const circuitOpen = taskErrorState.isOpen("PARAM_TYPE_MISMATCH")
+
+					const parameter = (signal.metadata?.parameter as string | undefined) ?? "unknown"
+					const errorMessage = circuitOpen
+						? `[MODEL_STUCK_LOOP] The malformed '${String(block.name)}' call has failed ${occurrence} times with the same structural pattern (${variant} on parameter '${parameter}'). Stop retrying this invocation shape. Continue with a different tool or strategy.`
+						: occurrence === 2
+							? `[STRUCTURAL_MISUSE_REPEAT occurrence=2] This is the second time '${String(block.name)}' was called with the same structural problem (${variant} on parameter '${parameter}'). Re-read the tool schema now: '${parameter}' must be a plain scalar value, not an object. Correct the parameter type and submit exactly one native call.`
+							: variant === "CWD_OBJECT_MISUSE"
+								? `[CWD_OBJECT_MISUSE] execute_command.cwd must be a single directory string (or omitted). A non-string value (type: ${String(signal.metadata?.actualType)}) was provided, likely because another tool-call object was nested inside it. Submit exactly one native execute_command with 'command' at the top level and 'cwd' as a workspace path string or omitted.`
+								: `[NESTED_PARAM_OVERFLOW] The '${String(block.name)}' parameter '${parameter}' contains a nested tool invocation object (${String(signal.metadata?.signature ?? "unknown-signature")}). Issue each intended tool as a separate native tool call with only its own top-level parameters.`
+
+					cline.consecutiveMistakeCount++
+					try {
+						cline.recordToolError(String(block.name) as ToolName, errorMessage)
+					} catch (recordErr) {
+						console.warn(
+							"[ErrorInterception] Failed to record tool error:",
+							recordErr instanceof Error ? recordErr.message : recordErr,
+						)
+					}
+
+					const guided = interceptor.transformError(cline, {
+						source: "validation",
+						stage: "preflight",
+						taskId: cline.taskId,
+						toolCallId,
+						toolName: String(block.name),
+						metadata: { ...signal.metadata, structuralPreflight: true, occurrence, circuitOpen },
+					})
+
+					const structuralGuide = taskErrorState.consumePendingNativeProtocolGuide()
+					const structuralBase = guided ?? formatResponse.toolError(errorMessage)
+					// Show the structural error to the user in the UI chat.
+					// The AI receives the guided payload below; the user must also
+					// see what went wrong (design principle: both must happen).
+					const structuralUserMessage = guided
+						? `${getErrorTitleFromGuided(guided)}\n\n${guided}`
+						: `[${variant}] ${errorMessage}`
+					await cline.say("error", structuralUserMessage)
+					cline.pushToolResultToUserContent({
+						type: "tool_result",
+						tool_use_id: sanitizeToolUseId(toolCallId),
+						content: structuralGuide ? `${structuralBase}\n\n${structuralGuide}` : structuralBase,
+						is_error: true,
+					})
+
+					break
 				}
 			}
 
@@ -610,12 +1002,41 @@ export async function presentAssistantMessage(cline: Task) {
 					// 2. NOT set didAlreadyUseTool = true (the tool was never executed, just failed validation)
 					// This prevents the stream from being interrupted with "Response interrupted by tool use result"
 					// which would cause the extension to appear to hang
-					const errorContent = formatResponse.toolError(error.message)
+					const errorMessage = error instanceof Error ? error.message : String(error)
+					// Classify the validation failure so the interceptor does not
+					// misreport every validation error as a parameter type mismatch.
+					let validationMetadata: Record<string, unknown>
+					if (errorMessage.includes("not allowed in")) {
+						validationMetadata = { modeRestriction: true }
+					} else if (errorMessage.includes("Unknown tool")) {
+						validationMetadata = { unknownTool: true }
+					} else if (errorMessage.includes("File restriction") || errorMessage.includes("FileRestriction")) {
+						validationMetadata = { fileRestriction: true }
+					} else {
+						validationMetadata = { typeMismatch: true } // generic fallback only for actual type issues
+					}
+					const guided = interceptor.transformError(cline, {
+						source: "validation",
+						stage: "preflight",
+						taskId: cline.taskId,
+						toolCallId,
+						toolName: block.name,
+						metadata: validationMetadata,
+					})
 					// Push tool_result directly without setting didAlreadyUseTool
+					const validationGuide = getTaskErrorState(cline).consumePendingNativeProtocolGuide()
+					const validationBase = guided ? `${guided}\n\n${errorMessage}` : errorMessage
+					// Show the validation error to the user in the UI chat.
+					// The AI receives the guided payload below; the user must also
+					// see what went wrong (design principle: both must happen).
+					const validationUserMessage = guided
+						? `${getErrorTitleFromGuided(guided)}\n\n${guided}`
+						: `Validation error: ${errorMessage}`
+					await cline.say("error", validationUserMessage)
 					cline.pushToolResultToUserContent({
 						type: "tool_result",
 						tool_use_id: sanitizeToolUseId(toolCallId),
-						content: typeof errorContent === "string" ? errorContent : "(validation error)",
+						content: validationGuide ? `${validationBase}\n\n${validationGuide}` : validationBase,
 						is_error: true,
 					})
 
@@ -631,6 +1052,23 @@ export async function presentAssistantMessage(cline: Task) {
 
 				// If execution is not allowed, notify user and break.
 				if (!repetitionCheck.allowExecution && repetitionCheck.askUser) {
+					// Forward the deterministic duplicate signal before the user prompt
+					// so the model-facing guidance is emitted as part of this tool turn.
+					const signalMetadata: Record<string, unknown> = { blocked: true }
+
+					const guided = interceptor.transformError(cline, {
+						source: "repetition",
+						stage: "result",
+						taskId: cline.taskId,
+						toolCallId,
+						toolName: block.name,
+						metadata: signalMetadata,
+					})
+
+					if (guided) {
+						pushToolResult(guided)
+					}
+
 					// Handle repetition similar to mistake_limit_reached pattern.
 					const { response, text, images } = await cline.ask(
 						repetitionCheck.askUser.messageKey as ClineAsk,
@@ -665,12 +1103,9 @@ export async function presentAssistantMessage(cline: Task) {
 						),
 					)
 
-					// Return tool result message about the repetition
-					pushToolResult(
-						formatResponse.toolError(
-							`Tool call repetition limit reached for ${block.name}. Please try a different approach.`,
-						),
-					)
+					// The transformed result was already emitted before the user prompt to
+					// preserve exactly-once behavior; additional user feedback is added as
+					// text content above.
 					break
 				}
 			}
@@ -873,8 +1308,19 @@ export async function presentAssistantMessage(cline: Task) {
 									const message = `Custom tool "${block.name}" argument validation failed: ${parseParamsError.message}`
 									console.error(message)
 									cline.consecutiveMistakeCount++
-									await cline.say("error", message)
-									pushToolResult(formatResponse.toolError(message))
+									const guided = interceptor.transformError(cline, {
+										source: "validation",
+										stage: "preflight",
+										taskId: cline.taskId,
+										toolCallId,
+										toolName: block.name,
+										metadata: { typeMismatch: true },
+									})
+									await cline.say(
+										"error",
+										guided ? `${getErrorTitleFromGuided(guided)}\n\n${guided}` : message,
+									)
+									pushToolResult(guided ?? formatResponse.toolError(message))
 									break
 								}
 							}
@@ -890,11 +1336,15 @@ export async function presentAssistantMessage(cline: Task) {
 
 							pushToolResult(result)
 							cline.consecutiveMistakeCount = 0
-						} catch (executionError: any) {
+						} catch (executionError: unknown) {
 							cline.consecutiveMistakeCount++
 							// Record custom tool error with static name
-							cline.recordToolError("custom_tool", executionError.message)
-							await handleError(`executing custom tool "${block.name}"`, executionError)
+							const errorMsg =
+								executionError instanceof Error ? executionError.message : String(executionError)
+							cline.recordToolError("custom_tool", errorMsg)
+							const wrappedError =
+								executionError instanceof Error ? executionError : new Error(String(executionError))
+							await handleError(`executing custom tool "${block.name}"`, wrappedError)
 						}
 
 						break
@@ -904,13 +1354,28 @@ export async function presentAssistantMessage(cline: Task) {
 					const errorMessage = `Unknown tool "${block.name}". This tool does not exist. Please use one of the available tools.`
 					cline.consecutiveMistakeCount++
 					cline.recordToolError(block.name as ToolName, errorMessage)
-					await cline.say("error", t("tools:unknownToolError", { toolName: block.name }))
 					// Push tool_result directly WITHOUT setting didAlreadyUseTool
 					// This prevents the stream from being interrupted with "Response interrupted by tool use result"
+					const guided = interceptor.transformError(cline, {
+						source: "validation",
+						stage: "preflight",
+						taskId: cline.taskId,
+						toolCallId,
+						toolName: block.name,
+						metadata: { unknownTool: true },
+					})
+					await cline.say(
+						"error",
+						guided
+							? `${getErrorTitleFromGuided(guided)}\n\n${guided}`
+							: t("tools:unknownToolError", { toolName: block.name }),
+					)
+					const unknownToolGuide = getTaskErrorState(cline).consumePendingNativeProtocolGuide()
+					const unknownToolBase = guided ?? formatResponse.toolError(errorMessage)
 					cline.pushToolResultToUserContent({
 						type: "tool_result",
 						tool_use_id: sanitizeToolUseId(toolCallId),
-						content: formatResponse.toolError(errorMessage),
+						content: unknownToolGuide ? `${unknownToolBase}\n\n${unknownToolGuide}` : unknownToolBase,
 						is_error: true,
 					})
 					break

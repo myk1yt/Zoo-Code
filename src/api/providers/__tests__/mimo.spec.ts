@@ -1,4 +1,8 @@
-const mockCreate = vi.fn()
+import type { ApiStreamChunk } from "../../transform/stream"
+import type { DeepSeekAssistantMessage } from "../../transform/r1-format"
+import type OpenAI from "openai"
+
+const mockCreate = vi.fn<[OpenAI.Chat.Completions.ChatCompletionCreateParams], Promise<unknown>>()
 vi.mock("openai", () => {
 	return {
 		__esModule: true,
@@ -6,7 +10,7 @@ vi.mock("openai", () => {
 			return {
 				chat: {
 					completions: {
-						create: mockCreate.mockImplementation(async (options) => {
+						create: mockCreate.mockImplementation(async (_options) => {
 							return {
 								[Symbol.asyncIterator]: async function* () {
 									yield {
@@ -38,6 +42,7 @@ import type { ApiHandlerOptions } from "../../../shared/api"
 import { MimoHandler } from "../mimo"
 import { convertToR1Format } from "../../transform/r1-format"
 import { sanitizeOpenAiCallId } from "../../../utils/tool-id"
+import type { ApiHandlerCreateMessageMetadata } from "../../index"
 
 describe("MimoHandler", () => {
 	let handler: MimoHandler
@@ -69,13 +74,13 @@ describe("MimoHandler", () => {
 
 		it("should use Singapore base URL if not provided", () => {
 			const h = new MimoHandler({ ...mockOptions, mimoBaseUrl: undefined })
-			expect((h as any).options.openAiBaseUrl).toBe("https://token-plan-sgp.xiaomimimo.com/v1")
+			expect((h as unknown as { options: { openAiBaseUrl: string } }).options.openAiBaseUrl).toBe("https://token-plan-sgp.xiaomimimo.com/v1")
 		})
 
 		it("should use custom base URL when provided", () => {
 			const customUrl = "https://api.xiaomimimo.com/v1"
 			const h = new MimoHandler({ ...mockOptions, mimoBaseUrl: customUrl })
-			expect((h as any).options.openAiBaseUrl).toBe(customUrl)
+			expect((h as unknown as { options: { openAiBaseUrl: string } }).options.openAiBaseUrl).toBe(customUrl)
 		})
 	})
 
@@ -117,7 +122,7 @@ describe("MimoHandler", () => {
 				{
 					role: "assistant",
 					content: [
-						{ type: "reasoning" as const, text: "Let me think..." } as any,
+						{ type: "reasoning" as const, text: "Let me think..." } as unknown as Anthropic.Messages.MessageParam["content"][number],
 						{ type: "text" as const, text: "Here is the answer" },
 					],
 				},
@@ -126,7 +131,7 @@ describe("MimoHandler", () => {
 			expect(result).toHaveLength(1)
 			expect(result[0].role).toBe("assistant")
 			expect(result[0].content).toBe("Here is the answer")
-			expect((result[0] as any).reasoning_content).toBe("Let me think...")
+			expect((result[0] as DeepSeekAssistantMessage).reasoning_content).toBe("Let me think...")
 		})
 
 		it("should convert assistant message with tool_use blocks", () => {
@@ -146,11 +151,11 @@ describe("MimoHandler", () => {
 			]
 			const result = convert(messages)
 			expect(result).toHaveLength(1)
-			const msg = result[0] as any
+			const msg = result[0] as OpenAI.Chat.ChatCompletionAssistantMessageParam
 			expect(msg.tool_calls).toHaveLength(1)
-			expect(msg.tool_calls[0].id).toBe("call_123")
-			expect(msg.tool_calls[0].function.name).toBe("read_file")
-			expect(msg.tool_calls[0].function.arguments).toBe('{"path":"README.md"}')
+			expect(msg.tool_calls![0].id).toBe("call_123")
+			expect(msg.tool_calls![0].function.name).toBe("read_file")
+			expect(msg.tool_calls![0].function.arguments).toBe('{"path":"README.md"}')
 		})
 
 		it("should handle string-input tool_use (JSON string)", () => {
@@ -168,10 +173,10 @@ describe("MimoHandler", () => {
 				},
 			]
 			const result = convert(messages)
-			const msg = result[0] as any
+			const msg = result[0] as OpenAI.Chat.ChatCompletionAssistantMessageParam
 			expect(msg.tool_calls).toHaveLength(1)
-			expect(msg.tool_calls[0].function.name).toBe("read_file")
-			expect(msg.tool_calls[0].function.arguments).toContain("test.ts")
+			expect(msg.tool_calls![0].function.name).toBe("read_file")
+			expect(msg.tool_calls![0].function.arguments).toContain("test.ts")
 		})
 
 		it("should handle assistant message with string content", () => {
@@ -189,27 +194,27 @@ describe("MimoHandler", () => {
 
 		it("should handle assistant string content with reasoning_content", () => {
 			const messages = [
-				{
-					role: "assistant" as const,
-					content: "Response after thinking",
-					reasoning_content: "My reasoning",
-				},
-			] as any[]
+					{
+						role: "assistant" as const,
+						content: "Response after thinking",
+						reasoning_content: "My reasoning",
+					},
+				] as unknown as Anthropic.Messages.MessageParam[]
 			const result = convert(messages)
 			expect(result).toHaveLength(1)
-			expect((result[0] as any).reasoning_content).toBe("My reasoning")
+			expect((result[0] as DeepSeekAssistantMessage).reasoning_content).toBe("My reasoning")
 		})
 
 		it("should not add reasoning_content if empty string", () => {
 			const messages = [
-				{
-					role: "assistant" as const,
-					content: "Response",
-					reasoning_content: "",
-				},
-			] as any[]
+					{
+						role: "assistant" as const,
+						content: "Response",
+						reasoning_content: "",
+					},
+				] as unknown as Anthropic.Messages.MessageParam[]
 			const result = convert(messages)
-			expect((result[0] as any).reasoning_content).toBeUndefined()
+			expect((result[0] as DeepSeekAssistantMessage).reasoning_content).toBeUndefined()
 		})
 
 		it("should convert user messages with tool_result blocks", () => {
@@ -226,7 +231,7 @@ describe("MimoHandler", () => {
 				},
 			]
 			const result = convert(messages)
-			const msg = result[0] as any
+			const msg = result[0] as OpenAI.Chat.ChatCompletionToolMessageParam
 			expect(msg.role).toBe("tool")
 			expect(msg.tool_call_id).toBe("call_123")
 			expect(msg.content).toBe("File contents here")
@@ -325,7 +330,7 @@ describe("MimoHandler", () => {
 				{
 					role: "assistant",
 					content: [
-						{ type: "reasoning" as const, text: "User wants to read a file" } as any,
+						{ type: "reasoning" as const, text: "User wants to read a file" } as unknown as Anthropic.Messages.MessageParam["content"][number],
 						{ type: "text" as const, text: "I'll read it" },
 						{
 							type: "tool_use" as const,
@@ -352,11 +357,11 @@ describe("MimoHandler", () => {
 			expect(result[0].role).toBe("user")
 			// assistant with reasoning + tool_calls
 			expect(result[1].role).toBe("assistant")
-			expect((result[1] as any).reasoning_content).toBe("User wants to read a file")
-			expect((result[1] as any).tool_calls).toHaveLength(1)
+			expect((result[1] as DeepSeekAssistantMessage).reasoning_content).toBe("User wants to read a file")
+			expect((result[1] as OpenAI.Chat.ChatCompletionAssistantMessageParam).tool_calls).toHaveLength(1)
 			// tool result
 			expect(result[2].role).toBe("tool")
-			expect((result[2] as any).tool_call_id).toBe("call_1")
+			expect((result[2] as OpenAI.Chat.ChatCompletionToolMessageParam).tool_call_id).toBe("call_1")
 		})
 	})
 
@@ -379,7 +384,7 @@ describe("MimoHandler", () => {
 			)
 		})
 
-		it("should not send parallel_tool_calls or tool_choice", async () => {
+		it("should omit parallel_tool_calls when metadata.parallelToolCalls is undefined", async () => {
 			const messages: Anthropic.Messages.MessageParam[] = [
 				{ role: "user", content: [{ type: "text", text: "Hello" }] },
 			]
@@ -392,6 +397,106 @@ describe("MimoHandler", () => {
 			const params = mockCreate.mock.calls[0][0]
 			expect(params.parallel_tool_calls).toBeUndefined()
 			expect(params.tool_choice).toBeUndefined()
+		})
+
+		it("should send parallel_tool_calls: false when metadata.parallelToolCalls is false", async () => {
+			const messages: Anthropic.Messages.MessageParam[] = [
+				{ role: "user", content: [{ type: "text", text: "Hello" }] },
+			]
+
+			const stream = handler.createMessage("System prompt", messages, {
+				taskId: "test-task",
+				parallelToolCalls: false,
+			})
+			for await (const _chunk of stream) {
+				// drain
+			}
+
+			const params = mockCreate.mock.calls[0][0]
+			expect(params.parallel_tool_calls).toBe(false)
+		})
+
+		it("should send parallel_tool_calls: true when metadata.parallelToolCalls is true", async () => {
+			const messages: Anthropic.Messages.MessageParam[] = [
+				{ role: "user", content: [{ type: "text", text: "Hello" }] },
+			]
+
+			const stream = handler.createMessage("System prompt", messages, {
+				taskId: "test-task",
+				parallelToolCalls: true,
+			})
+			for await (const _chunk of stream) {
+				// drain
+			}
+
+			const params = mockCreate.mock.calls[0][0]
+			expect(params.parallel_tool_calls).toBe(true)
+		})
+
+		it("should pass through tool_choice when provided in metadata", async () => {
+			const messages: Anthropic.Messages.MessageParam[] = [
+				{ role: "user", content: [{ type: "text", text: "Hello" }] },
+			]
+
+			const stream = handler.createMessage("System prompt", messages, {
+				taskId: "test-task",
+				tool_choice: "auto",
+			})
+			for await (const _chunk of stream) {
+				// drain
+			}
+
+			const params = mockCreate.mock.calls[0][0]
+			expect(params.tool_choice).toBe("auto")
+		})
+
+		it("should retry without parallel_tool_calls when endpoint rejects the field", async () => {
+			// First call rejects with a 400 error mentioning parallel_tool_calls
+			const rejectionError = Object.assign(new Error("400 - Unrecognized request parameter: parallel_tool_calls"), {
+				status: 400,
+			})
+			mockCreate.mockRejectedValueOnce(rejectionError)
+
+			// Second call (retry) succeeds
+			mockCreate.mockImplementationOnce(async () => ({
+				[Symbol.asyncIterator]: async function* () {
+					yield {
+						choices: [{ delta: { content: "Retried" }, index: 0 }],
+						usage: null,
+					}
+					yield {
+						choices: [{ delta: {}, index: 0, finish_reason: "stop" }],
+						usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+					}
+				},
+			}))
+
+			const messages: Anthropic.Messages.MessageParam[] = [
+				{ role: "user", content: [{ type: "text", text: "Hello" }] },
+			]
+
+			const stream = handler.createMessage("System prompt", messages, {
+				taskId: "test-task",
+				parallelToolCalls: false,
+			})
+
+			const chunks: ApiStreamChunk[] = []
+			for await (const chunk of stream) {
+				chunks.push(chunk)
+			}
+	
+			// First call should have had parallel_tool_calls
+			const firstCallParams = mockCreate.mock.calls[0][0]
+			expect(firstCallParams.parallel_tool_calls).toBe(false)
+
+			// Second call (retry) should NOT have parallel_tool_calls
+			const retryCallParams = mockCreate.mock.calls[1][0]
+			expect(retryCallParams.parallel_tool_calls).toBeUndefined()
+
+			// Stream should have produced text from the retry
+			const textChunks = chunks.filter((c) => c.type === "text")
+			expect(textChunks.length).toBeGreaterThan(0)
+			expect(textChunks[0].text).toBe("Retried")
 		})
 
 		it("should send stream_options with include_usage", async () => {
@@ -427,7 +532,7 @@ describe("MimoHandler", () => {
 				},
 			]
 
-			const stream = handler.createMessage("System prompt", messages, { tools } as any)
+			const stream = handler.createMessage("System prompt", messages, { tools } as unknown as ApiHandlerCreateMessageMetadata)
 			for await (const _chunk of stream) {
 				// drain
 			}
@@ -442,12 +547,12 @@ describe("MimoHandler", () => {
 				{ role: "user", content: [{ type: "text", text: "Hello" }] },
 			]
 
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			const stream = handler.createMessage("System prompt", messages)
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
-
+	
 			const textChunks = chunks.filter((c) => c.type === "text")
 			expect(textChunks.length).toBeGreaterThan(0)
 			expect(textChunks[0].text).toBe("Test response")
@@ -458,12 +563,12 @@ describe("MimoHandler", () => {
 				{ role: "user", content: [{ type: "text", text: "Hello" }] },
 			]
 
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			const stream = handler.createMessage("System prompt", messages)
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
-
+	
 			const usageChunks = chunks.filter((c) => c.type === "usage")
 			expect(usageChunks).toHaveLength(1)
 			expect(usageChunks[0].inputTokens).toBe(10)
@@ -486,11 +591,11 @@ describe("MimoHandler", () => {
 				{ role: "user", content: [{ type: "text", text: "Hello" }] },
 			]
 
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			for await (const chunk of handler.createMessage("System prompt", messages)) {
 				chunks.push(chunk)
 			}
-
+	
 			expect(chunks).toContainEqual({ type: "reasoning", text: "thinking..." })
 		})
 
@@ -509,11 +614,11 @@ describe("MimoHandler", () => {
 				{ role: "user", content: [{ type: "text", text: "Hello" }] },
 			]
 
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			for await (const chunk of handler.createMessage("System prompt", messages)) {
 				chunks.push(chunk)
 			}
-
+	
 			expect(chunks).toContainEqual({ type: "reasoning", text: "router-style thought" })
 		})
 
@@ -542,11 +647,11 @@ describe("MimoHandler", () => {
 				{ role: "user", content: [{ type: "text", text: "Hello" }] },
 			]
 
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			for await (const chunk of handler.createMessage("System prompt", messages)) {
 				chunks.push(chunk)
 			}
-
+	
 			const reasoningChunks = chunks.filter((chunk) => chunk.type === "reasoning")
 			expect(reasoningChunks).toEqual([{ type: "reasoning", text: "primary thought" }])
 		})
@@ -598,13 +703,13 @@ describe("MimoHandler", () => {
 				{ role: "user", content: [{ type: "text", text: "Read test.ts" }] },
 			]
 
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			const stream = handler.createMessage("System prompt", messages)
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
-
-			const toolChunks = chunks.filter((c) => c.type === "tool_call_partial")
+	
+			const toolChunks = chunks.filter((c): c is Extract<ApiStreamChunk, { type: "tool_call_partial" }> => c.type === "tool_call_partial")
 			expect(toolChunks).toHaveLength(2)
 			expect(toolChunks[0].id).toBe("call_abc")
 			expect(toolChunks[0].name).toBe("read_file")
@@ -638,13 +743,13 @@ describe("MimoHandler", () => {
 				{ role: "user", content: [{ type: "text", text: "Hello" }] },
 			]
 
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			const stream = handler.createMessage("System prompt", messages)
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
-
-			const usageChunks = chunks.filter((c) => c.type === "usage")
+	
+			const usageChunks = chunks.filter((c): c is Extract<ApiStreamChunk, { type: "usage" }> => c.type === "usage")
 			expect(usageChunks).toHaveLength(1)
 			expect(usageChunks[0].inputTokens).toBe(100)
 			expect(usageChunks[0].outputTokens).toBe(20)
@@ -745,12 +850,12 @@ describe("MimoHandler", () => {
 				{ role: "user", content: [{ type: "text", text: "Hello" }] },
 			]
 
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			const stream = handler.createMessage("System prompt", messages)
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
-
+	
 			const textChunks = chunks.filter((c) => c.type === "text")
 			expect(textChunks).toHaveLength(0)
 		})
@@ -801,28 +906,28 @@ describe("MimoHandler", () => {
 				},
 			}))
 
-			const tools: any[] = [
-				{
-					type: "function",
-					function: { name: "read_file", description: "Read", parameters: {} },
-				},
-				{
-					type: "function",
-					function: { name: "list_files", description: "List", parameters: {} },
-				},
-			]
+			const tools: OpenAI.Chat.ChatCompletionTool[] = [
+					{
+						type: "function",
+						function: { name: "read_file", description: "Read", parameters: {} },
+					},
+					{
+						type: "function",
+						function: { name: "list_files", description: "List", parameters: {} },
+					},
+				]
 
 			const messages: Anthropic.Messages.MessageParam[] = [
 				{ role: "user", content: [{ type: "text", text: "Hello" }] },
 			]
 
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			const stream = handler.createMessage("System", messages, { taskId: "test", tools })
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
-
-			const toolChunks = chunks.filter((c) => c.type === "tool_call_partial")
+	
+			const toolChunks = chunks.filter((c): c is Extract<ApiStreamChunk, { type: "tool_call_partial" }> => c.type === "tool_call_partial")
 			const readChunks = toolChunks.filter((c) => c.name === "read_file")
 			const listChunks = toolChunks.filter((c) => c.name === "list_files")
 			expect(readChunks.length).toBeGreaterThan(0)
@@ -844,16 +949,16 @@ describe("MimoHandler", () => {
 				{ role: "user", content: [{ type: "text", text: "Hello" }] },
 			]
 
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			const stream = handler.createMessage("System", messages)
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
-
-			const textChunks = chunks.filter((c) => c.type === "text")
+	
+			const textChunks = chunks.filter((c): c is Extract<ApiStreamChunk, { type: "text" }> => c.type === "text")
 			expect(textChunks).toHaveLength(1)
 			expect(textChunks[0].text).toBe("Partial ")
-
+	
 			const usageChunks = chunks.filter((c) => c.type === "usage")
 			expect(usageChunks).toHaveLength(0)
 		})
@@ -885,24 +990,24 @@ describe("MimoHandler", () => {
 				},
 			}))
 
-			const tools: any[] = [
-				{
-					type: "function",
-					function: { name: "test_tool", description: "Test", parameters: {} },
-				},
-			]
+			const tools: OpenAI.Chat.ChatCompletionTool[] = [
+					{
+						type: "function",
+						function: { name: "test_tool", description: "Test", parameters: {} },
+					},
+				]
 
 			const messages: Anthropic.Messages.MessageParam[] = [
 				{ role: "user", content: [{ type: "text", text: "Hello" }] },
 			]
 
-			const chunks: any[] = []
+			const chunks: ApiStreamChunk[] = []
 			const stream = handler.createMessage("System", messages, { taskId: "test", tools })
 			for await (const chunk of stream) {
 				chunks.push(chunk)
 			}
-
-			const toolChunks = chunks.filter((c) => c.type === "tool_call_partial")
+	
+			const toolChunks = chunks.filter((c): c is Extract<ApiStreamChunk, { type: "tool_call_partial" }> => c.type === "tool_call_partial")
 			expect(toolChunks.length).toBeGreaterThan(0)
 			expect(toolChunks[0].id).toBe(sanitizeOpenAiCallId("call_with-special.chars@123"))
 			expect(toolChunks[0].id).not.toMatch(/[^a-zA-Z0-9_-]/)
