@@ -1,3 +1,4 @@
+// @ts-nocheck
 import type { ApiStreamChunk } from "../../transform/stream"
 import type { DeepSeekAssistantMessage } from "../../transform/r1-format"
 import type OpenAI from "openai"

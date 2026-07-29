@@ -13,7 +13,6 @@
 				"@roo-code/config-typescript",
 				"@types/node-cache",
 				"@types/vscode",
-				"@types/shell-quote",
 				"@vscode/ripgrep",
 				"esbuild-wasm",
 				"tree-sitter-wasms",
