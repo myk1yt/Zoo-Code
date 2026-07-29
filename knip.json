@@ -10,6 +10,7 @@
 		"src/integrations/terminal/shell/types.ts"
 	],
 	"ignoreDependencies": ["lint-staged"],
+	"ignoreBinaries": ["playwright"],
 	"ignoreExportsUsedInFile": true,
 	"playwright": false,
 	"playwright-ct": false,
