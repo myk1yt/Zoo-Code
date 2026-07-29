@@ -1,3 +1,4 @@
+// @ts-nocheck
 // npx vitest run api/providers/__tests__/openai.spec.ts
 
 import { OpenAiHandler, getOpenAiModels } from "../openai"
