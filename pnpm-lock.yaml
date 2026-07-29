@@ -665,6 +665,9 @@ importers:
       '@types/semver-compare':
         specifier: 1.0.3
         version: 1.0.3
+      '@types/shell-quote':
+        specifier: 1.7.5
+        version: 1.7.5
       '@types/vscode':
         specifier: 1.100.0
         version: 1.100.0
