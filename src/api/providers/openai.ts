@@ -165,15 +165,20 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 				stream: true as const,
 				...(isGrokXAI ? {} : { stream_options: { include_usage: true } }),
 				...(reasoning && reasoning),
-				tools: this.convertToolsForOpenAI(metadata?.tools),
+				tools: this.convertToolsForOpenAI(metadata?.tools, this.options.openAiToolStrictMode ?? false),
 				tool_choice: metadata?.tool_choice,
-				parallel_tool_calls: metadata?.parallelToolCalls ?? true,
-			}
-
-			// Add max_tokens if needed
-			this.addMaxTokensIfNeeded(requestOptions, modelInfo)
-
-			let stream
+				// Only send parallel_tool_calls when tools are present; some
+				// OpenAI-compatible providers (e.g. Upstage solar-open2) reject
+				// this field when no tools are supplied.
+				...(metadata?.tools && metadata.tools.length > 0
+					? { parallel_tool_calls: metadata?.parallelToolCalls ?? true }
+					: {}),
+				}
+	
+				// Add max_tokens if needed
+				this.addMaxTokensIfNeeded(requestOptions, modelInfo)
+	
+				let stream
 			try {
 				stream = await this.client.chat.completions.create(
 					requestOptions,
@@ -231,12 +236,17 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 					? convertToR1Format([{ role: "user", content: systemPrompt }, ...messages])
 					: [systemMessage, ...convertToOpenAiMessages(messages)],
 				// Tools are always present (minimum ALWAYS_AVAILABLE_TOOLS)
-				tools: this.convertToolsForOpenAI(metadata?.tools),
+				tools: this.convertToolsForOpenAI(metadata?.tools, this.options.openAiToolStrictMode ?? false),
 				tool_choice: metadata?.tool_choice,
-				parallel_tool_calls: metadata?.parallelToolCalls ?? true,
-			}
-
-			// Add max_tokens if needed
+				// Only send parallel_tool_calls when tools are present; some
+				// OpenAI-compatible providers (e.g. Upstage solar-open2) reject
+				// this field when no tools are supplied.
+				...(metadata?.tools && metadata.tools.length > 0
+					? { parallel_tool_calls: metadata?.parallelToolCalls ?? true }
+					: {}),
+				}
+	
+				// Add max_tokens if needed
 			this.addMaxTokensIfNeeded(requestOptions, modelInfo)
 
 			let response
@@ -362,17 +372,17 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 				reasoning_effort: modelInfo.reasoningEffort as "low" | "medium" | "high" | undefined,
 				temperature: undefined,
 				// Tools are always present (minimum ALWAYS_AVAILABLE_TOOLS)
-				tools: this.convertToolsForOpenAI(metadata?.tools),
+				tools: this.convertToolsForOpenAI(metadata?.tools, this.options.openAiToolStrictMode ?? false),
 				tool_choice: metadata?.tool_choice,
 				parallel_tool_calls: metadata?.parallelToolCalls ?? true,
-			}
-
-			// O3 family models do not support the deprecated max_tokens parameter
-			// but they do support max_completion_tokens (the modern OpenAI parameter)
-			// This allows O3 models to limit response length when includeMaxTokens is enabled
-			this.addMaxTokensIfNeeded(requestOptions, modelInfo)
-
-			let stream
+				}
+	
+				// O3 family models do not support the deprecated max_tokens parameter
+				// but they do support max_completion_tokens (the modern OpenAI parameter)
+				// This allows O3 models to limit response length when includeMaxTokens is enabled
+				this.addMaxTokensIfNeeded(requestOptions, modelInfo)
+	
+				let stream
 			try {
 				stream = await this.client.chat.completions.create(
 					requestOptions,
@@ -396,17 +406,17 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 				reasoning_effort: modelInfo.reasoningEffort as "low" | "medium" | "high" | undefined,
 				temperature: undefined,
 				// Tools are always present (minimum ALWAYS_AVAILABLE_TOOLS)
-				tools: this.convertToolsForOpenAI(metadata?.tools),
+				tools: this.convertToolsForOpenAI(metadata?.tools, this.options.openAiToolStrictMode ?? false),
 				tool_choice: metadata?.tool_choice,
 				parallel_tool_calls: metadata?.parallelToolCalls ?? true,
-			}
-
-			// O3 family models do not support the deprecated max_tokens parameter
-			// but they do support max_completion_tokens (the modern OpenAI parameter)
-			// This allows O3 models to limit response length when includeMaxTokens is enabled
-			this.addMaxTokensIfNeeded(requestOptions, modelInfo)
-
-			let response
+				}
+	
+				// O3 family models do not support the deprecated max_tokens parameter
+				// but they do support max_completion_tokens (the modern OpenAI parameter)
+				// This allows O3 models to limit response length when includeMaxTokens is enabled
+				this.addMaxTokensIfNeeded(requestOptions, modelInfo)
+	
+				let response
 			try {
 				response = await this.client.chat.completions.create(
 					requestOptions,
