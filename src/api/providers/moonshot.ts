@@ -3,6 +3,7 @@ import OpenAI from "openai"
 import { moonshotModels, moonshotDefaultModelId, type ModelInfo } from "@roo-code/types"
 
 import type { ApiHandlerOptions } from "../../shared/api"
+import { calculateApiCostOpenAI } from "../../shared/cost"
 
 import type { ApiStreamUsageChunk } from "../transform/stream"
 import { getModelParams } from "../transform/model-params"
@@ -63,12 +64,22 @@ export class MoonshotHandler extends OpenAiHandler {
 	 * Moonshot returns cached_tokens in a different location than standard OpenAI.
 	 */
 	protected override processUsageMetrics(usage: any, _modelInfo?: ModelInfo): ApiStreamUsageChunk {
+		const inputTokens = usage?.prompt_tokens || 0
+		const outputTokens = usage?.completion_tokens || 0
+		const cacheReadTokens = usage?.prompt_tokens_details?.cached_tokens ?? usage?.cached_tokens
+
+		const modelInfo = _modelInfo ?? this.getModel().info
+		const { totalCost } = modelInfo
+			? calculateApiCostOpenAI(modelInfo, inputTokens, outputTokens, 0, cacheReadTokens || 0)
+			: { totalCost: 0 }
+
 		return {
 			type: "usage",
-			inputTokens: usage?.prompt_tokens || 0,
-			outputTokens: usage?.completion_tokens || 0,
+			inputTokens,
+			outputTokens,
 			cacheWriteTokens: 0,
-			cacheReadTokens: usage?.prompt_tokens_details?.cached_tokens ?? usage?.cached_tokens,
+			cacheReadTokens: cacheReadTokens || undefined,
+			totalCost,
 		}
 	}
 

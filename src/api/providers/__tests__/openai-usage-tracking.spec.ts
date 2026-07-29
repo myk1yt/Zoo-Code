@@ -138,8 +138,9 @@ describe("OpenAiHandler with usage tracking fix", () => {
 				type: "usage",
 				inputTokens: 10,
 				outputTokens: 5,
+				totalCost: 0,
 			})
-
+	
 			// Check the usage chunk is the last one reported from the API
 			const lastChunk = chunks[chunks.length - 1]
 			expect(lastChunk.type).toBe("usage")
@@ -198,6 +199,7 @@ describe("OpenAiHandler with usage tracking fix", () => {
 				type: "usage",
 				inputTokens: 10,
 				outputTokens: 5,
+				totalCost: 0,
 			})
 		})
 
