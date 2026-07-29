@@ -10,10 +10,13 @@ import {
 	StatsQuery,
 	StatsBucket,
 } from "@roo-code/types"
+import type { UsageEventV1 } from "@roo-code/types"
 import { UsageStatsService } from "../UsageStatsService"
 
-function makeEvent(overrides: Record<string, any> = {}): any {
-	return {
+type RecordEventInput = Parameters<UsageStatsService["record"]>[0]
+
+function makeEvent(overrides: Partial<RecordEventInput> = {}): RecordEventInput {
+	const base: RecordEventInput = {
 		schemaVersion: 1,
 		eventId: "evt-123",
 		idempotencyKey: "idem-456",
@@ -40,8 +43,8 @@ function makeEvent(overrides: Record<string, any> = {}): any {
 			reasoningInOutput: InclusionRule.parse("included"),
 		},
 		provenance: "live",
-		...overrides,
 	}
+	return { ...base, ...overrides }
 }
 
 describe("UsageStatsService", () => {
@@ -80,7 +83,7 @@ describe("UsageStatsService", () => {
 
 		it("should reject invalid event schema", async () => {
 			const result = await service.record({
-				schemaVersion: 999,
+				schemaVersion: 999 as 1,
 				eventId: "evt-invalid",
 				idempotencyKey: "idem-invalid",
 				occurredAt: "2024-01-01T00:00:00Z",
@@ -221,7 +224,7 @@ describe("UsageStatsService", () => {
 
 			await service.clear()
 
-			const snapshot = await service.query({ timezone: "UTC", groupBy: [] })
+			const snapshot = await service.query({ timezone: "UTC", groupBy: [], includeCancelled: false })
 			expect(snapshot.totals.events).toBe(0)
 		})
 	})
@@ -288,6 +291,7 @@ describe("UsageStatsService", () => {
 			const snapshot = await service.query({
 				timezone: "UTC",
 				groupBy: [],
+				includeCancelled: false,
 			})
 
 			expect(snapshot.coverage.recordingPaused).toBe(true)

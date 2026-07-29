@@ -2,7 +2,7 @@ import * as fs from "fs/promises"
 import * as path from "path"
 import { fileURLToPath } from "url"
 
-import type { UsageEventV1 } from "@roo-code/types"
+import { UsageEventV1 } from "@roo-code/types"
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -44,10 +44,14 @@ export class StatsStoreError extends Error {
 	constructor(
 		public readonly code: StatsStoreErrorCode,
 		message: string,
-		public readonly cause?: unknown,
+		public readonly causeParam?: unknown,
 	) {
 		super(`[${code}] ${message}`)
 		this.name = "StatsStoreError"
+		// Note: 'cause' is a member of Error base class
+		if (causeParam !== undefined) {
+			;(this as { cause?: unknown }).cause = causeParam
+		}
 	}
 }
 
@@ -132,17 +136,19 @@ export class UsageEventStore {
 	 */
 	async append(event: UsageEventV1): Promise<boolean> {
 		// Process-wide serializing promise queue
-		const pending: (value: boolean | PromiseLike<boolean>) => void
-		const pendingPromise = new Promise<boolean>((resolve, reject) => {
-			pending = resolve
+		let pendingResolve: (value: boolean | PromiseLike<boolean>) => void = () => {
+			// placeholder, replaced below
+		}
+		const pendingPromise = new Promise<boolean>((resolve) => {
+			pendingResolve = resolve
 		})
 
 		this.queue = this.queue.then(async () => {
 			try {
 				const result = await this.appendInternal(event)
-				pending!(result)
+				pendingResolve(result)
 			} catch (err) {
-				pending!(Promise.reject(err))
+				pendingResolve(Promise.reject(err))
 			}
 		})
 
@@ -163,7 +169,7 @@ export class UsageEventStore {
 			const allFiles = await fs.readdir(this.statsDir)
 			segmentFiles = allFiles
 				.filter((f) => f.startsWith(SEGMENT_PREFIX) && f.endsWith(SEGMENT_EXT))
-				.sort(),
+				.sort()
 		} catch (err) {
 			throw new StatsStoreError(
 				"STATS_STORE/readAll/001",
@@ -307,7 +313,7 @@ export class UsageEventStore {
 			const allFiles = await fs.readdir(this.statsDir)
 			segmentFiles = allFiles
 				.filter((f) => f.startsWith(SEGMENT_PREFIX) && f.endsWith(SEGMENT_EXT))
-				.sort(),
+				.sort()
 		} catch {
 			return
 		}
@@ -335,10 +341,8 @@ export class UsageEventStore {
 					}
 				}
 			} catch (err) {
-				if (
-					!(err instanceof NodeJS.ErrnoException) ||
-					err.code !== "ENOENT"
-				) {
+				const code = (err as NodeJS.ErrnoException | undefined)?.code
+				if (code !== "ENOENT") {
 					console.warn(
 						`[UsageEventStore] Failed to scan segment ${segmentFile} for idempotency rebuild:`,
 						err,
@@ -400,9 +404,12 @@ export class UsageEventStore {
 
 			// Segment max check
 			if (segmentSize + lineSize > SEGMENT_MAX_BYTES) {
-				manifest.currentSegment += 1
-				manifest.updatedAt = new Date().toISOString()
-				await this.writeManifest(manifest)
+				const updatedManifest: UsageStatsManifest = {
+					...manifest,
+					currentSegment: manifest.currentSegment + 1,
+					updatedAt: new Date().toISOString(),
+				}
+				await this.writeManifest(updatedManifest)
 				// Recurse to write to new segment (under same lock)
 				return this.appendInternal(event)
 			}
@@ -410,7 +417,7 @@ export class UsageEventStore {
 			// Append line to segment
 			try {
 				const handle = await fs.open(segmentPath, "a")
-				await handle.write(line, { position: segmentSize, flush: true })
+				await handle.write(line, segmentSize, "utf-8")
 				await handle.close()
 			} catch (err) {
 				throw new StatsStoreError(
@@ -421,8 +428,11 @@ export class UsageEventStore {
 			}
 
 			// Update manifest
-			manifest.updatedAt = new Date().toISOString()
-			await this.writeManifest(manifest)
+			const finalManifest: UsageStatsManifest = {
+				...manifest,
+				updatedAt: new Date().toISOString(),
+			}
+			await this.writeManifest(finalManifest)
 
 			// Add to idempotency set
 			this.idempotencyKeys.add(event.idempotencyKey)

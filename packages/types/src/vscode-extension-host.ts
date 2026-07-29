@@ -18,7 +18,6 @@ import type { SkillMetadata } from "./skills.js"
 import type { RuleMetadata } from "./rules.js"
 import type { TelemetrySetting } from "./telemetry.js"
 import type { WorktreeIncludeStatus } from "./worktree.js"
-import type { UsageEventV1 } from "./usage-stats.js"
 import type { StatsQuery, StatsSnapshot } from "./usage-stats.js"
 
 /**

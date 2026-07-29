@@ -1,11 +1,8 @@
 import { randomUUID } from "crypto"
 
-import type {
-	UsageEventV1,
-	StatsQuery,
-	StatsSnapshot,
-} from "@roo-code/types"
-import { UsageEventV1 } from "@roo-code/types"
+import { UsageEventV1, StatsQuery } from "@roo-code/types"
+import type { StatsSnapshot } from "@roo-code/types"
+import type { z } from "zod"
 
 import { UsageEventStore } from "./UsageEventStore"
 import { UsageAggregator } from "./UsageAggregator"
@@ -47,14 +44,14 @@ export class UsageStatsService {
 	 *
 	 * @returns `{ success, duplicate, error }`
 	 */
-	async record(event: Omit<UsageEventV1, "idempotencyKey">): Promise<{
+	async record(event: z.input<typeof UsageEventV1>): Promise<{
 		success: boolean
 		duplicate: boolean
 		error?: string
 	}> {
 		try {
 			// Validate event schema
-			const parsed = UsageEventV1Schema.safeParse(event)
+			const parsed = UsageEventV1.safeParse(event)
 			if (!parsed.success) {
 				return {
 					success: false,
@@ -94,7 +91,7 @@ export class UsageStatsService {
 	/**
 	 * Record multiple events in batch.
 	 */
-	async recordBatch(events: Omit<UsageEventV1, "idempotencyKey">[]): Promise<{
+	async recordBatch(events: z.input<typeof UsageEventV1>[]): Promise<{
 		success: boolean
 		duplicates: number
 		errors: string[]
@@ -126,7 +123,8 @@ export class UsageStatsService {
 	 * 2. Aggregate by query parameters
 	 * 3. Return snapshot
 	 */
-	async query(query: StatsQuery): Promise<StatsSnapshot> {
+	async query(queryInput: z.input<typeof StatsQuery>): Promise<StatsSnapshot> {
+		const query = StatsQuery.parse(queryInput)
 		const events = await this.store.readAll()
 
 		// Also include in-memory events that might not be flushed yet

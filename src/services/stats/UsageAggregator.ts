@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { StatsQuery as StatsQuerySchema } from "@roo-code/types"
 import type { UsageEventV1, StatsBucket, StatsQuery } from "@roo-code/types"
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -307,10 +308,12 @@ export function aggregateEvents(events: UsageEventV1[], query: StatsQuery): {
 			const eventDate = parseISO(event.occurredAt)
 			if (eventDate) {
 				const eventTime = eventDate.getTime()
-				if (!firstEventAt || eventTime < parseISO(firstEventAt)?.getTime()) {
+				const firstEventTime = firstEventAt ? parseISO(firstEventAt)?.getTime() : undefined
+				if (firstEventTime === undefined || eventTime < firstEventTime) {
 					firstEventAt = event.occurredAt
 				}
-				if (!lastEventAt || eventTime > parseISO(lastEventAt)?.getTime()) {
+				const lastEventTime = lastEventAt ? parseISO(lastEventAt)?.getTime() : undefined
+				if (lastEventTime === undefined || eventTime > lastEventTime) {
 					lastEventAt = event.occurredAt
 				}
 			}
@@ -408,7 +411,7 @@ export class UsageAggregator {
 	/**
 	 * Query events with aggregation.
 	 */
-	query(query: StatsQuery): {
+	query(queryInput: z.input<typeof StatsQuerySchema>): {
 		buckets: StatsBucket[]
 		totals: StatsBucket
 		coverage: {
@@ -418,6 +421,7 @@ export class UsageAggregator {
 			backfilledEventCount: number
 		}
 	} {
+		const query = StatsQuerySchema.parse(queryInput)
 		return aggregateEvents(this.events, query)
 	}
 }

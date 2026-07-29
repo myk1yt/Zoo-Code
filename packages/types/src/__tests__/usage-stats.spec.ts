@@ -1,5 +1,4 @@
 import { describe, it, expect } from "vitest"
-import { z } from "zod"
 
 import {
 	UsageEventStatus,
@@ -10,7 +9,7 @@ import {
 	StatsQuery,
 	StatsBucket,
 	StatsSnapshot,
-} from "../usage-stats"
+} from "../usage-stats.js"
 
 describe("UsageStats", () => {
 	describe("UsageEventStatus", () => {
@@ -21,7 +20,7 @@ describe("UsageStats", () => {
 		})
 
 		it("should reject invalid values", () => {
-			expect(() => UsageEventStatus.parse("invalid" as any)).toThrow()
+			expect(() => UsageEventStatus.parse("invalid" as string)).toThrow()
 		})
 	})
 
@@ -33,7 +32,7 @@ describe("UsageStats", () => {
 		})
 
 		it("should reject invalid values", () => {
-			expect(() => UsageValueSource.parse("invalid" as any)).toThrow()
+			expect(() => UsageValueSource.parse("invalid" as string)).toThrow()
 		})
 	})
 
@@ -45,7 +44,7 @@ describe("UsageStats", () => {
 		})
 
 		it("should reject invalid values", () => {
-			expect(() => InclusionRule.parse("invalid" as any)).toThrow()
+			expect(() => InclusionRule.parse("invalid" as string)).toThrow()
 		})
 	})
 
@@ -58,7 +57,7 @@ describe("UsageStats", () => {
 
 		it("should reject invalid source", () => {
 			expect(() =>
-				SourcedNumber.parse({ value: 100, source: "invalid" as any }),
+				SourcedNumber.parse({ value: 100, source: "invalid" as string }),
 			).toThrow()
 		})
 	})
@@ -125,7 +124,7 @@ describe("UsageStats", () => {
 
 		it("should enforce provenance enum", () => {
 			expect(() =>
-				UsageEventV1.parse({ ...baseEvent, provenance: "invalid" as any }),
+				UsageEventV1.parse({ ...baseEvent, provenance: "invalid" as string }),
 			).toThrow()
 		})
 	})
@@ -148,7 +147,7 @@ describe("UsageStats", () => {
 			expect(() =>
 				StatsQuery.parse({
 					timezone: "UTC",
-					groupBy: ["day", "week", "month", "provider"] as any,
+					groupBy: ["day", "week", "month", "provider"] as string[],
 				}),
 			).toThrow()
 		})
