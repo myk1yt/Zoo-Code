@@ -109,6 +109,7 @@ import {
 	saveApiMessages,
 	saveTaskMessages,
 	TaskHistoryStore,
+	TaskOrganizationStore,
 	assertValidTransition,
 } from "../task-persistence"
 import { readTaskMessages } from "../task-persistence/taskMessages"
@@ -185,6 +186,8 @@ export class ClineProvider
 	private recentTasksCache?: string[]
 	public readonly taskHistoryStore: TaskHistoryStore
 	private taskHistoryStoreInitialized = false
+	private taskOrganizationStore?: TaskOrganizationStore
+	private taskOrganizationStoreInitPromise?: Promise<TaskOrganizationStore>
 	private globalStateWriteThroughTimer: ReturnType<typeof setTimeout> | null = null
 	private static readonly GLOBAL_STATE_WRITE_THROUGH_DEBOUNCE_MS = 5000 // 5 seconds
 	private static readonly PENDING_OPERATION_TIMEOUT_MS = 30000 // 30 seconds
@@ -2276,6 +2279,54 @@ export class ClineProvider
 		}
 	}
 
+	/**
+	 * Returns the TaskOrganizationStore, lazily initializing it on first call.
+	 * The store broadcasts state changes through `postStateToWebview` so the
+	 * webview always has the latest snapshot without polling.
+	 */
+	async getTaskOrganizationStore(): Promise<TaskOrganizationStore | undefined> {
+		if (this.taskOrganizationStore) {
+			return this.taskOrganizationStore
+		}
+		if (this.taskOrganizationStoreInitPromise) {
+			try {
+				return await this.taskOrganizationStoreInitPromise
+			} catch {
+				return undefined
+			}
+		}
+		const initPromise = (async (): Promise<TaskOrganizationStore> => {
+			const store = new TaskOrganizationStore(this.contextProxy.globalStorageUri.fsPath, {
+				onChange: async () => {
+					try {
+						await this.postStateToWebview()
+					} catch (error) {
+						this.log(
+							`[ClineProvider] postStateToWebview after task organization change failed: ${
+								error instanceof Error ? error.message : String(error)
+							}`,
+						)
+					}
+				},
+			})
+			await store.initialize()
+			this.taskOrganizationStore = store
+			return store
+		})()
+		this.taskOrganizationStoreInitPromise = initPromise
+		try {
+			return await initPromise
+		} catch (error) {
+			this.log(
+				`[ClineProvider] Failed to initialize TaskOrganizationStore: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			)
+			this.taskOrganizationStoreInitPromise = undefined
+			return undefined
+		}
+	}
+
 	async getStateToPostToWebview(): Promise<ExtensionState> {
 		// Ensure the store is initialized before reading task history
 		await this.taskHistoryStore.initialized
@@ -2578,6 +2629,7 @@ export class ClineProvider
 			platform: process.platform,
 			arch: process.arch,
 			debug: vscode.workspace.getConfiguration(Package.name).get<boolean>("debug", false),
+			taskOrganizationSnapshot: this.taskOrganizationStore?.getState(),
 		}
 	}
 

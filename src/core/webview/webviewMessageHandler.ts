@@ -3714,14 +3714,103 @@ export const webviewMessageHandler = async (
 				const errorMessage = error instanceof Error ? error.message : String(error)
 				provider.log(`Error fetching OpenAI Codex rate limits: ${errorMessage}`)
 				provider.postMessageToWebview({
-					type: "openAiCodexRateLimits",
-					error: errorMessage,
-				})
+						type: "openAiCodexRateLimits",
+						error: errorMessage,
+					})
+				}
+				break
 			}
-			break
-		}
-
-		case "openDebugApiHistory":
+	
+			case "requestTaskOrganizationSnapshot": {
+				try {
+					const store = await provider.getTaskOrganizationStore()
+					if (!store) {
+						provider.log("[B09] TaskOrganizationStore unavailable")
+						break
+					}
+					await store.waitForInitialized()
+					const snapshot = store.getState()
+					await provider.postMessageToWebview({
+						type: "taskOrganizationSnapshot",
+						taskOrganizationSnapshot: snapshot,
+					})
+				} catch (error) {
+					const errorMessage = error instanceof Error ? error.message : String(error)
+					provider.log(`[B09] Error fetching task organization snapshot: ${errorMessage}`)
+				}
+				break
+			}
+	
+			case "taskOrganizationMutate": {
+				const request = message.taskOrganizationMutationRequest
+				if (!request) {
+					provider.log("[B09] taskOrganizationMutate received without payload")
+					break
+				}
+				try {
+					const store = await provider.getTaskOrganizationStore()
+					if (!store) {
+						await provider.postMessageToWebview({
+							type: "taskOrganizationMutationResult",
+							taskOrganizationMutationResult: {
+								requestId: request.requestId,
+								success: false,
+								committedRevision: request.baseRevision,
+								error: {
+									code: "TASK_ORG/PERSISTENCE/005",
+									message: "TASK_ORG/handleMutate/001: TaskOrganizationStore unavailable",
+								},
+							},
+						})
+						break
+					}
+					await store.waitForInitialized()
+					const result = await store.mutate(request.mutation, request.baseRevision)
+					// Preserve the original requestId — the store echoes an empty string
+					// when given a bare mutation without an envelope.
+					await provider.postMessageToWebview({
+						type: "taskOrganizationMutationResult",
+						taskOrganizationMutationResult: {
+							...result,
+							requestId: request.requestId,
+						},
+					})
+				} catch (error) {
+					const errorMessage = error instanceof Error ? error.message : String(error)
+					provider.log(`[B09] Error applying task organization mutation: ${errorMessage}`)
+					await provider.postMessageToWebview({
+						type: "taskOrganizationMutationResult",
+						taskOrganizationMutationResult: {
+							requestId: request.requestId,
+							success: false,
+							committedRevision: request.baseRevision,
+							error: {
+								code: "TASK_ORG/PERSISTENCE/005",
+								message: `TASK_ORG/handleMutate/002: ${errorMessage}`,
+							},
+						},
+					})
+				}
+				break
+			}
+	
+			case "taskOrganizationReconcile": {
+				try {
+					const store = await provider.getTaskOrganizationStore()
+					if (!store) {
+						provider.log("[B09] TaskOrganizationStore unavailable for reconcile")
+						break
+					}
+					await store.waitForInitialized()
+					await store.reconcile()
+				} catch (error) {
+					const errorMessage = error instanceof Error ? error.message : String(error)
+					provider.log(`[B09] Error reconciling task organization: ${errorMessage}`)
+				}
+				break
+			}
+	
+			case "openDebugApiHistory":
 		case "openDebugUiHistory": {
 			const currentTask = provider.getCurrentTask()
 			if (!currentTask) {
