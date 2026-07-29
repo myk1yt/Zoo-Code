@@ -44,6 +44,14 @@ import {
 	handleOpenSkillFile,
 } from "./skillsMessageHandler"
 import {
+	handleGetUsageStats,
+	handleClearUsageStats,
+	handleExportUsageStats,
+	handleRequestClearNonce,
+	handleGetDashboardSessions,
+	handleGetDashboardSessionDetail,
+} from "./usageStatsMessageHandler"
+import {
 	handleRequestRules,
 	handleCreateRule,
 	handleDeleteRule,
@@ -4041,6 +4049,31 @@ export const webviewMessageHandler = async (
 				provider.log(`Error opening folder picker: ${errorMessage}`)
 			}
 
+			break
+		}
+
+		case "getUsageStats": {
+			await handleGetUsageStats(provider, message)
+			break
+		}
+		case "clearUsageStats": {
+			await handleClearUsageStats(provider, message)
+			break
+		}
+		case "requestClearNonce": {
+			await handleRequestClearNonce(provider, message)
+			break
+		}
+		case "exportUsageStats": {
+			await handleExportUsageStats(provider, message)
+			break
+		}
+		case "getDashboardSessions": {
+			await handleGetDashboardSessions(provider, message)
+			break
+		}
+		case "getDashboardSessionDetail": {
+			await handleGetDashboardSessionDetail(provider, message)
 			break
 		}
 
