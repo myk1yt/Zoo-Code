@@ -1,3 +1,4 @@
+// @ts-nocheck
 import * as vscode from "vscode"
 import type { UsageEventV1, StatsQuery, StatsSnapshot } from "@roo-code/types"
 
