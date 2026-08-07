@@ -233,7 +233,7 @@ describe("message payload type compilation", () => {
 			},
 		}
 		expect(payload.options).toHaveLength(2)
-		expect(payload.effectiveShell?.family).toBe("powershell")
+		expect(typeof payload.effectiveShell === "object" ? payload.effectiveShell.family : undefined).toBe("powershell")
 	})
 
 	it("TerminalShellOptionsPayload should allow error without effectiveShell", () => {

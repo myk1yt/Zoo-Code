@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import type { GlobalSettings, RooCodeSettings } from "./global-settings.js"
+import type { GlobalSettings, RooCodeSettings, TerminalShellSelection } from "./global-settings.js"
 import type { ProviderSettings, ProviderSettingsEntry } from "./provider-settings.js"
 import type { HistoryItem } from "./history.js"
 import type {
@@ -31,13 +31,50 @@ import type {
 	DashboardStatsSubscription,
 	DashboardStatsSnapshot,
 	DashboardStatsDelta,
+	DashboardTaskStatsSnapshot,
+	DashboardTaskStatsDelta,
 	DashboardSessionPage,
 	DashboardTaskPage,
 	DashboardTaskDetail,
-	DashboardTaskStatsSnapshot,
-	DashboardTaskStatsDelta,
 	DashboardStatsError,
 } from "./usage-stats.js"
+
+/**
+ * A sanitized, display-safe shell option for the inline-terminal shell selector.
+ *
+ * The extension host populates this from trusted VS Code default/global profile
+ * scopes and known OS defaults. Workspace-controlled profiles are never included.
+ */
+export interface TerminalShellOption {
+	/** Stable identifier for this option (e.g. "auto", "profile:PowerShell", "path:C:\..."). */
+	id: string
+	/** User-facing display label. */
+	label: string
+	/** Shell family controlling invocation semantics and command chaining. */
+	family: "powershell" | "cmd" | "posix" | "fish" | "wsl"
+	/** Resolution source description (e.g. "vscode-default", "os-default", "user-override"). */
+	source: string
+	/** Whether this option target is currently valid and executable on the host. */
+	available: boolean
+}
+
+/**
+ * Extension-to-webview response payload carrying available shell options.
+ */
+export interface TerminalShellOptionsPayload {
+	options: TerminalShellOption[]
+	effectiveShell?: string | { label: string; family: TerminalShellOption["family"]; source: string }
+	error?: string
+}
+
+/**
+ * Host response payload for `requestCustomShellPath` custom picker invocations.
+ */
+export interface CustomShellPathSelectedPayload {
+	pickedPath?: string
+	path?: string
+	error?: string
+}
 
 /**
  * ExtensionMessage
@@ -293,6 +330,13 @@ export interface ExtensionMessage {
 	copyProgressBytesCopied?: number
 	copyProgressTotalBytes?: number
 	copyProgressItemName?: string
+	// Terminal shell selection response payload for `terminalShellOptions`.
+	// Carries the host-resolved trusted option list and current effective shell.
+	terminalShellOptions?: TerminalShellOptionsPayload
+	// Custom shell path picker response payload.
+	// Carries the validated picked path (or a validation error) back to the
+	// webview so it can buffer the selection as pending until Save.
+	customShellPathSelected?: CustomShellPathSelectedPayload
 	// folderSelected
 	path?: string
 	// Usage stats response payloads
@@ -459,6 +503,7 @@ export type ExtensionState = Pick<
 	renderContext: "sidebar" | "editor"
 	settingsImportedAt?: number
 	historyPreviewCollapsed?: boolean
+	terminalShellSelection?: TerminalShellSelection
 
 	cloudUserInfo: CloudUserInfo | null
 	cloudIsAuthenticated: boolean
@@ -733,6 +778,10 @@ export interface WebviewMessage {
 		| "deleteRule"
 		| "openRuleFile"
 		| "openRulesDirectory"
+		// Terminal shell selection messages
+		| "requestTerminalShellOptions"
+		| "setTerminalShellSelection"
+		| "requestCustomShellPath"
 		// Usage stats request types
 		| "getUsageStats"
 		| "clearUsageStats"
@@ -863,6 +912,9 @@ export interface WebviewMessage {
 	worktreeForce?: boolean
 	worktreeNewWindow?: boolean
 	worktreeIncludeContent?: string
+	// Terminal shell selection payload for `setTerminalShellSelection`.
+	// The extension host validates this before persisting to global settings.
+	terminalShellSelection?: TerminalShellSelection
 	// Usage stats request payloads
 	usageStatsQuery?: StatsQuery
 	clearUsageStatsNonce?: string

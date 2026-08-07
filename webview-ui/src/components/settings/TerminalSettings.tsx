@@ -353,14 +353,18 @@ export const TerminalSettings = ({
 										<div className="font-medium">
 											{t("settings:terminal.inlineShell.effectiveShell.label")}
 										</div>
-										<div>
-											{t("settings:terminal.inlineShell.effectiveShell.family")}:{" "}
-											{shellOptions.effectiveShell.family}
-										</div>
-										<div>
-											{t("settings:terminal.inlineShell.effectiveShell.source")}:{" "}
-											{shellOptions.effectiveShell.source}
-										</div>
+										{typeof shellOptions.effectiveShell === "object" && (
+											<>
+												<div>
+													{t("settings:terminal.inlineShell.effectiveShell.family")}:{" "}
+													{shellOptions.effectiveShell.family}
+												</div>
+												<div>
+													{t("settings:terminal.inlineShell.effectiveShell.source")}:{" "}
+													{shellOptions.effectiveShell.source}
+												</div>
+											</>
+										)}
 										<div className="text-xs">
 											{t("settings:terminal.inlineShell.effectiveShell.fallbackDescription")}
 										</div>

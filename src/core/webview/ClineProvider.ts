@@ -3512,20 +3512,6 @@ export class ClineProvider
 		}
 
 		return options
-=======
-	 * Returns the UsageStatsService instance, or undefined if initialization failed.
-	 * The service provides local token usage statistics: query, export, clear.
-	 */
-	public getUsageStatsService(): UsageStatsService | undefined {
-		return this.usageStatsService
-	}
-
-	/**
-	 * Returns the TaskOrganizationStore instance for use by message handlers.
-	 */
-	public getTaskOrganizationStore(): TaskOrganizationStore {
-		return this.taskOrganizationStore
->>>>>>> feature/local-usage-stats
 	}
 
 	/**
@@ -3607,13 +3593,6 @@ export class ClineProvider
 
 	public getCurrentTask(): Task | undefined {
 		return this.taskRegistry.current
-	}
-
-	/**
-	 * Returns the TaskOrganizationStore instance for use by message handlers.
-	 */
-	public getTaskOrganizationStore(): TaskOrganizationStore {
-		return this.taskOrganizationStore
 	}
 
 	private logWebviewHiddenDiagnostics(): void {

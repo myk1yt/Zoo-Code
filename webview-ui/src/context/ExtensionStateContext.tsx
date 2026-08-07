@@ -18,6 +18,7 @@ import {
 	type Command,
 	type McpServer,
 	type WebviewMessage,
+	type TerminalShellSelection,
 	type TaskOrganizationMutationRequestV1,
 	type TaskOrganizationMutationResultV1,
 	RouterModels,
@@ -44,6 +45,7 @@ import { convertTextMateToHljs } from "@src/utils/textMateToHljs"
  * that update both local state and the extension host.
  */
 export interface ExtensionStateContextType extends ExtensionState {
+	terminalShellSelection?: TerminalShellSelection
 	historyPreviewCollapsed?: boolean // Add the new state property
 	didHydrateState: boolean
 	mutateTaskOrganization: (
