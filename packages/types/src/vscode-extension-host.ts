@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import type { GlobalSettings, RooCodeSettings, TerminalShellSelection } from "./global-settings.js"
+import type { GlobalSettings, RooCodeSettings } from "./global-settings.js"
 import type { ProviderSettings, ProviderSettingsEntry } from "./provider-settings.js"
 import type { HistoryItem } from "./history.js"
 import type {
@@ -23,6 +23,21 @@ import type { SkillMetadata } from "./skills.js"
 import type { RuleMetadata } from "./rules.js"
 import type { TelemetrySetting } from "./telemetry.js"
 import type { WorktreeIncludeStatus } from "./worktree.js"
+import type {
+	StatsQuery,
+	StatsSnapshot,
+	SessionSummary,
+	SessionDetail,
+	DashboardStatsSubscription,
+	DashboardStatsSnapshot,
+	DashboardStatsDelta,
+	DashboardSessionPage,
+	DashboardTaskPage,
+	DashboardTaskDetail,
+	DashboardTaskStatsSnapshot,
+	DashboardTaskStatsDelta,
+	DashboardStatsError,
+} from "./usage-stats.js"
 
 /**
  * ExtensionMessage
@@ -114,6 +129,26 @@ export interface ExtensionMessage {
 		| "customShellPathSelected"
 		| "taskOrganizationUpdated"
 		| "taskOrganizationMutationResult"
+		// Usage stats response types
+		| "getUsageStatsResponse"
+		| "clearUsageStatsResponse"
+		| "exportUsageStatsResponse"
+		| "requestClearNonceResponse"
+		| "rebuildUsageStatsResponse"
+		| "usageStatsChanged"
+		// Dashboard response types
+		| "dashboardStatsResponse"
+		| "dashboardSessionsResponse"
+		| "dashboardSessionDetailResponse"
+		// Dashboard streaming response types
+		| "dashboardStatsStreamSnapshot"
+		| "dashboardStatsStreamDelta"
+		| "dashboardStatsStreamError"
+		| "dashboardSessionPageResponse"
+		| "dashboardTaskPageResponse"
+		| "dashboardTaskDetailResponse"
+		| "taskOrganizationUpdated"
+		| "taskOrganizationMutationResult"
 	text?: string
 	/** For fileContent: { path, content, error? } */
 	fileContent?: { path: string; content: string | null; error?: string }
@@ -127,6 +162,7 @@ export interface ExtensionMessage {
 		| "settingsButtonClicked"
 		| "historyButtonClicked"
 		| "marketplaceButtonClicked"
+		| "dashboardButtonClicked"
 		| "didBecomeVisible"
 		| "focusInput"
 		| "switchTab"
@@ -257,15 +293,25 @@ export interface ExtensionMessage {
 	copyProgressBytesCopied?: number
 	copyProgressTotalBytes?: number
 	copyProgressItemName?: string
-	// Terminal shell options response payload.
-	// Contains sanitized trusted shell options and the effective-shell summary.
-	terminalShellOptions?: TerminalShellOptionsPayload
-	// Custom shell path picker response payload.
-	// Carries the validated picked path (or a validation error) back to the
-	// webview so it can buffer the selection as pending until Save.
-	customShellPathSelected?: CustomShellPathSelectedPayload
 	// folderSelected
 	path?: string
+	// Usage stats response payloads
+	usageStatsSnapshot?: StatsSnapshot
+	clearUsageStatsResult?: { success: boolean; error?: string }
+	rebuildUsageStatsResult?: { success: boolean; error?: string }
+	exportUsageStatsResult?: { format: "json" | "csv"; data: string; error?: string }
+	// B2 fix: host-issued clear nonce returned in `requestClearNonceResponse`.
+	// null when the service is unavailable or an error occurred (see `error`).
+	clearNonce?: string | null
+	// Dashboard sessions response payload (Commit 3).
+	// `dashboardSessions` is null when the service is unavailable or an error
+	// occurred (see `error`). On success it is an array (possibly empty).
+	dashboardSessions?: SessionSummary[] | null
+	// Dashboard session detail response payload (Commit 4).
+	// `dashboardSessionDetail` is null when the service is unavailable, the
+	// taskId is not found, or an error occurred (see `error`). On success it
+	// contains the full session summary plus the per-API-call records.
+	dashboardSessionDetail?: SessionDetail | null
 
 	/**
 	 * Full authoritative snapshot of the task organization aggregate.
@@ -279,6 +325,24 @@ export interface ExtensionMessage {
 	 * request. Correlated by `requestId`.
 	 */
 	taskOrganizationMutationResult?: TaskOrganizationMutationResultV1
+
+	// Dashboard streaming response payloads
+	/**
+	 * Full state snapshot for `dashboardStatsStreamSnapshot`. Legacy session
+	 * payloads remain valid until all producers and consumers migrate to the
+	 * History-first task page shape.
+	 */
+	dashboardStatsStreamSnapshot?: DashboardTaskStatsSnapshot | DashboardStatsSnapshot
+	/** Incremental delta for `dashboardStatsStreamDelta` during the same transition. */
+	dashboardStatsStreamDelta?: DashboardTaskStatsDelta | DashboardStatsDelta
+	/** Typed error for `dashboardStatsStreamError`. */
+	dashboardStatsStreamError?: DashboardStatsError
+	/** Cursor-paged session page for `dashboardSessionPageResponse`. */
+	dashboardSessionPage?: DashboardSessionPage
+	/** Cursor-paged History task page for `dashboardTaskPageResponse`. */
+	dashboardTaskPage?: DashboardTaskPage
+	/** History task detail for `dashboardTaskDetailResponse`. */
+	dashboardTaskDetail?: DashboardTaskDetail | null
 }
 
 export interface OpenAiCodexRateLimitsMessage {
@@ -326,7 +390,6 @@ export type ExtensionState = Pick<
 	| "terminalZdotdir"
 	| "terminalProfile"
 	| "execaShellPath"
-	| "terminalShellSelection"
 	| "diagnosticsEnabled"
 	| "autoCloseZooOpenedFiles"
 	| "autoCloseZooOpenedFilesAfterUserEdited"
@@ -457,62 +520,6 @@ export type ExtensionState = Pick<
 	 * Sent on initial state hydration and replaced on every update.
 	 */
 	taskOrganization?: TaskOrganizationStateV1
-}
-
-/**
- * A sanitized, display-safe shell option for the inline-terminal shell selector.
- *
- * The extension host populates this from trusted VS Code default/global profile
- * scopes and known OS defaults. Workspace-controlled profiles are never included.
- */
-export interface TerminalShellOption {
-	/** Stable identifier for this option (e.g. "auto", "profile:PowerShell", "path:C:\..."). */
-	id: string
-	/** User-facing display label. */
-	label: string
-	/** Shell family controlling invocation semantics and command chaining. */
-	family: "powershell" | "cmd" | "posix" | "fish" | "wsl"
-	/** Resolution source description (e.g. "vscode-default", "os-default", "user-override"). */
-	source: string
-	/** Whether the shell executable is currently available on this machine. */
-	available: boolean
-}
-
-/**
- * Payload for the `terminalShellOptions` extension-host → webview response.
- *
- * Contains the list of selectable shell options and a summary of the
- * currently effective shell so the settings UI can display it read-only.
- */
-export interface TerminalShellOptionsPayload {
-	/** Selectable shell options grouped by family. */
-	options: TerminalShellOption[]
-	/** Summary of the currently effective resolved shell. */
-	effectiveShell?: {
-		/** Display label for the effective shell executable. */
-		label: string
-		/** Shell family of the effective shell. */
-		family: TerminalShellOption["family"]
-		/** Resolution source of the effective shell. */
-		source: string
-	}
-	/** Error message if option discovery failed (non-fatal; UI shows warning). */
-	error?: string
-}
-
-/**
- * Payload for the `customShellPathSelected` extension-host → webview response.
- *
- * Sent after the user picks a shell executable via the native file dialog
- * (`requestCustomShellPath`). Carries the validated path back to the webview
- * so the selection can be buffered as pending state and persisted only when
- * the user saves settings. Nothing is persisted when this message is sent.
- */
-export interface CustomShellPathSelectedPayload {
-	/** The validated shell executable path. Present on success. */
-	path?: string
-	/** Error message if validation failed (non-fatal; UI shows warning). */
-	error?: string
 }
 
 export interface Command {
@@ -726,15 +733,30 @@ export interface WebviewMessage {
 		| "deleteRule"
 		| "openRuleFile"
 		| "openRulesDirectory"
-		// Terminal shell selection messages
-		| "requestTerminalShellOptions"
-		| "setTerminalShellSelection"
-		| "requestCustomShellPath"
+		// Usage stats request types
+		| "getUsageStats"
+		| "clearUsageStats"
+		| "exportUsageStats"
+		| "requestClearNonce"
+		| "rebuildUsageStats"
+		// Dashboard request types
+		| "getDashboardSessionDetail"
+		| "getDashboardSessions"
+		| "getDashboardTaskDetail"
+		// Dashboard streaming request types
+		| "subscribeDashboardStats"
+		| "unsubscribeDashboardStats"
+		| "replaceDashboardStatsSubscription"
+		| "pauseDashboardStats"
+		| "resumeDashboardStats"
+		| "resyncDashboardStats"
+		| "getDashboardSessionPage"
+		| "getDashboardTaskPage"
 		| "taskOrganizationMutation"
 	text?: string
 	taskId?: string
 	editedMessageContent?: string
-	tab?: "settings" | "history" | "mcp" | "modes" | "chat" | "marketplace" | "cloud"
+	tab?: "settings" | "history" | "mcp" | "modes" | "chat" | "marketplace" | "cloud" | "stats" | "dashboard"
 	disabled?: boolean
 	context?: string
 	dataUri?: string
@@ -841,9 +863,35 @@ export interface WebviewMessage {
 	worktreeForce?: boolean
 	worktreeNewWindow?: boolean
 	worktreeIncludeContent?: string
-	// Terminal shell selection payload for `setTerminalShellSelection`.
-	// The extension host validates this before persisting to global settings.
-	terminalShellSelection?: TerminalShellSelection
+	// Usage stats request payloads
+	usageStatsQuery?: StatsQuery
+	clearUsageStatsNonce?: string
+	exportUsageStatsFormat?: "json" | "csv"
+	// B2 fix: host-issued clear nonce returned to webview in response to
+	// `requestClearNonce`. The webview must use this nonce (not a self-generated
+	// one) when sending the subsequent `clearUsageStats` message, so the host's
+	// nonce validation actually passes.
+	clearNonce?: string
+	// Dashboard sessions request payload (Commit 3).
+	// `usageStatsQuery` carries the time range; `dashboardSessionFilters`
+	// carries optional model/provider filters applied after grouping.
+	dashboardSessionFilters?: {
+		model?: string
+		provider?: string
+	}
+
+	// Dashboard streaming request payloads.
+	// `dashboardStatsSubscription` carries the validated subscription
+	// descriptor for subscribe/replace operations.
+	dashboardStatsSubscription?: DashboardStatsSubscription
+	// Opaque cursor for `getDashboardSessionPage` requests.
+	dashboardSessionCursor?: string
+	// Page size for `getDashboardSessionPage` requests (1–100).
+	dashboardSessionLimit?: number
+	// Opaque cursor for `getDashboardTaskPage` requests.
+	dashboardTaskCursor?: string
+	// Page size for `getDashboardTaskPage` requests (1–100).
+	dashboardTaskLimit?: number
 
 	/**
 	 * Task organization mutation request from webview to extension host.

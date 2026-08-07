@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import * as fs from "fs/promises"
 import * as fsSync from "fs"
 import * as path from "path"
@@ -32,7 +33,7 @@ export interface SafeWriteJsonOptions {
  * @returns {Promise<void>}
  */
 
-async function safeWriteJson(filePath: string, data: unknown, options?: SafeWriteJsonOptions): Promise<void> {
+async function safeWriteJson(filePath: string, data: any, options?: SafeWriteJsonOptions): Promise<void> {
 	const absoluteFilePath = path.resolve(filePath)
 	let releaseLock = async () => {} // Initialized to a no-op
 
@@ -46,7 +47,7 @@ async function safeWriteJson(filePath: string, data: unknown, options?: SafeWrit
 
 		// Verify directory exists after creation attempt
 		await fs.access(dirPath)
-	} catch (dirError: unknown) {
+	} catch (dirError: any) {
 		console.error(`Failed to create or access directory for ${absoluteFilePath}:`, dirError)
 		throw dirError
 	}
@@ -101,9 +102,9 @@ async function safeWriteJson(filePath: string, data: unknown, options?: SafeWrit
 				`.${path.basename(absoluteFilePath)}.bak_${Date.now()}_${Math.random().toString(36).substring(2)}.tmp`,
 			)
 			await fs.rename(absoluteFilePath, actualTempBackupFilePath)
-		} catch (accessError: unknown) {
+		} catch (accessError: any) {
 			// Explicitly type accessError
-			if (accessError instanceof Error && (accessError as NodeJS.ErrnoException).code !== "ENOENT") {
+			if (accessError.code !== "ENOENT") {
 				// An error other than "file not found" occurred during access check.
 				throw accessError
 			}
@@ -199,7 +200,7 @@ async function safeWriteJson(filePath: string, data: unknown, options?: SafeWrit
  * @param prettyPrint Whether to format the JSON with indentation.
  * @returns Promise<void>
  */
-async function _streamDataToFile(targetPath: string, data: unknown, prettyPrint = false): Promise<void> {
+async function _streamDataToFile(targetPath: string, data: any, prettyPrint = false): Promise<void> {
 	// Stream data to avoid high memory usage for large JSON objects.
 	const fileWriteStream = fsSync.createWriteStream(targetPath, { encoding: "utf8" })
 
@@ -264,7 +265,7 @@ async function safeUpdateJson<T>(
 	try {
 		await fs.mkdir(dirPath, { recursive: true })
 		await fs.access(dirPath)
-	} catch (dirError: unknown) {
+	} catch (dirError: any) {
 		console.error(`Failed to create or access directory for ${absoluteFilePath}:`, dirError)
 		throw dirError
 	}
@@ -298,8 +299,8 @@ async function safeUpdateJson<T>(
 			const raw = await fs.readFile(absoluteFilePath, "utf8")
 			fileExisted = true
 			current = JSON.parse(raw) as T
-		} catch (readError: unknown) {
-			if (readError instanceof Error && (readError as NodeJS.ErrnoException).code !== "ENOENT") {
+		} catch (readError: any) {
+			if (readError.code !== "ENOENT") {
 				throw readError
 			}
 		}
@@ -331,8 +332,8 @@ async function safeUpdateJson<T>(
 					`.${path.basename(absoluteFilePath)}.bak_${Date.now()}_${Math.random().toString(36).substring(2)}.tmp`,
 				)
 				await fs.rename(absoluteFilePath, actualTempBackupFilePath)
-			} catch (accessError: unknown) {
-				if (accessError instanceof Error && (accessError as NodeJS.ErrnoException).code !== "ENOENT") {
+			} catch (accessError: any) {
+				if (accessError.code !== "ENOENT") {
 					throw accessError
 				}
 			}

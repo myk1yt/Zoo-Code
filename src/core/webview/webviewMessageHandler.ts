@@ -102,6 +102,24 @@ import {
 	handleCheckoutBranch,
 } from "./worktree"
 import { handleTaskOrganizationMessage } from "./taskOrganizationMessageHandler"
+import {
+	handleGetUsageStats,
+	handleClearUsageStats,
+	handleRebuildUsageStats,
+	handleExportUsageStats,
+	handleRequestClearNonce,
+	handleGetDashboardSessions,
+	handleGetDashboardSessionDetail,
+	handleGetDashboardTaskDetail,
+	handleSubscribeDashboardStats,
+	handleUnsubscribeDashboardStats,
+	handleReplaceDashboardStatsSubscription,
+	handlePauseDashboardStats,
+	handleResumeDashboardStats,
+	handleResyncDashboardStats,
+	handleGetDashboardSessionPage,
+	handleGetDashboardTaskPage,
+} from "./usageStatsMessageHandler"
 
 export const webviewMessageHandler = async (
 	provider: ClineProvider,
@@ -850,6 +868,56 @@ export const webviewMessageHandler = async (
 			break
 		case "taskOrganizationMutation":
 			await handleTaskOrganizationMessage(provider, message)
+			break
+		// ── Usage Stats Handlers ────────────────────────────────────────────
+		case "getUsageStats":
+			await handleGetUsageStats(provider, message)
+			break
+		case "clearUsageStats":
+			await handleClearUsageStats(provider, message)
+			break
+		case "rebuildUsageStats":
+			await handleRebuildUsageStats(provider, message)
+			break
+		case "exportUsageStats":
+			await handleExportUsageStats(provider, message)
+			break
+		case "requestClearNonce":
+			await handleRequestClearNonce(provider, message)
+			break
+		case "getDashboardSessions":
+			await handleGetDashboardSessions(provider, message)
+			break
+		case "getDashboardSessionDetail":
+			await handleGetDashboardSessionDetail(provider, message)
+			break
+		case "getDashboardTaskDetail":
+			await handleGetDashboardTaskDetail(provider, message)
+			break
+		// ── Dashboard Stats Stream Handlers ────────────────────────────────
+		case "subscribeDashboardStats":
+			await handleSubscribeDashboardStats(provider, message)
+			break
+		case "unsubscribeDashboardStats":
+			await handleUnsubscribeDashboardStats(provider, message)
+			break
+		case "replaceDashboardStatsSubscription":
+			await handleReplaceDashboardStatsSubscription(provider, message)
+			break
+		case "pauseDashboardStats":
+			await handlePauseDashboardStats(provider, message)
+			break
+		case "resumeDashboardStats":
+			await handleResumeDashboardStats(provider, message)
+			break
+		case "resyncDashboardStats":
+			await handleResyncDashboardStats(provider, message)
+			break
+		case "getDashboardSessionPage":
+			await handleGetDashboardSessionPage(provider, message)
+			break
+		case "getDashboardTaskPage":
+			await handleGetDashboardTaskPage(provider, message)
 			break
 		case "showTaskWithId":
 			await provider.showTaskWithId(message.text!)

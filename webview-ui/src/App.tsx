@@ -16,6 +16,7 @@ import HistoryView from "./components/history/HistoryView"
 import SettingsView, { SettingsViewRef } from "./components/settings/SettingsView"
 import WelcomeView from "./components/welcome/WelcomeViewProvider"
 import { MarketplaceView } from "./components/marketplace/MarketplaceView"
+import DashboardView from "./components/dashboard/DashboardView"
 import { CheckpointRestoreDialog } from "./components/chat/CheckpointRestoreDialog"
 import { DeleteMessageDialog, EditMessageDialog } from "./components/chat/MessageModificationConfirmationDialog"
 import ErrorBoundary from "./components/ErrorBoundary"
@@ -23,7 +24,7 @@ import { useAddNonInteractiveClickListener } from "./components/ui/hooks/useNonI
 import { TooltipProvider } from "./components/ui/tooltip"
 import { STANDARD_TOOLTIP_DELAY } from "./components/ui/standard-tooltip"
 
-type Tab = "settings" | "history" | "chat" | "marketplace"
+type Tab = "settings" | "history" | "chat" | "marketplace" | "dashboard"
 
 interface DeleteMessageDialogState {
 	isOpen: boolean
@@ -48,6 +49,7 @@ const tabsByMessageAction: Partial<Record<NonNullable<ExtensionMessage["action"]
 	settingsButtonClicked: "settings",
 	historyButtonClicked: "history",
 	marketplaceButtonClicked: "marketplace",
+	dashboardButtonClicked: "dashboard",
 }
 
 const App = () => {
@@ -245,6 +247,11 @@ const App = () => {
 					onDone={() => switchTab("chat")}
 					targetTab={currentMarketplaceTab as "mcp" | "mode" | undefined}
 				/>
+			)}
+			{tab === "dashboard" && (
+				<ErrorBoundary onRetry={() => switchTab("dashboard")}>
+					<DashboardView onDone={() => switchTab("chat")} />
+				</ErrorBoundary>
 			)}
 			<ChatView
 				ref={chatViewRef}

@@ -3713,8 +3713,11 @@ describe("Queued message processing after condense", () => {
 		vi.useFakeTimers()
 		await task.condenseContext()
 
-		// Flush the microtask that submits the queued message
-		vi.runAllTimers()
+		// Flush the microtask that submits the queued message.
+		// Use runOnlyPendingTimers (not runAllTimers) so an unrelated long-lived
+		// setInterval in the ClineProvider graph (stats stream rollover) does not
+		// re-fire indefinitely and trip vitest's infinite-loop guard.
+		vi.runOnlyPendingTimers()
 		vi.useRealTimers()
 
 		expect(submitSpy).toHaveBeenCalledWith("queued text", ["img1.png"])
@@ -3750,7 +3753,7 @@ describe("Queued message processing after condense", () => {
 		// Condense in task A should only drain A's queue
 		vi.useFakeTimers()
 		await taskA.condenseContext()
-		vi.runAllTimers()
+		vi.runOnlyPendingTimers()
 		vi.useRealTimers()
 
 		expect(spyA).toHaveBeenCalledWith("A message", undefined)
@@ -3760,7 +3763,7 @@ describe("Queued message processing after condense", () => {
 		// Now condense in task B should drain B's queue
 		vi.useFakeTimers()
 		await taskB.condenseContext()
-		vi.runAllTimers()
+		vi.runOnlyPendingTimers()
 		vi.useRealTimers()
 
 		expect(spyB).toHaveBeenCalledWith("B message", undefined)
