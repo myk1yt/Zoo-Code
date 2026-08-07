@@ -409,5 +409,93 @@ describe("NativeToolCallParser", () => {
 			expect(NativeToolCallParser.consumeParseError("call_consume")).toBeDefined()
 			expect(NativeToolCallParser.consumeParseError("call_consume")).toBeUndefined()
 		})
+
+		it("classifies a non-plain-object argument payload as invalid_argument_shape", () => {
+			NativeToolCallParser.parseToolCall({
+				id: "call_array_args",
+				name: "read_file",
+				arguments: "[1,2,3]",
+			})
+
+			const failure = NativeToolCallParser.consumeParseFailure("call_array_args")
+			expect(failure).toBeDefined()
+			expect(failure?.kind).toBe("invalid_argument_shape")
+			expect(failure?.toolName).toBe("read_file")
+			expect(failure?.missingParameters).toEqual([])
+		})
+
+		it("classifies a primitive argument payload as invalid_argument_shape", () => {
+			NativeToolCallParser.parseToolCall({
+				id: "call_primitive_args",
+				name: "read_file",
+				arguments: "42",
+			})
+
+			const failure = NativeToolCallParser.consumeParseFailure("call_primitive_args")
+			expect(failure?.kind).toBe("invalid_argument_shape")
+			expect(failure?.missingParameters).toEqual([])
+		})
+
+		it("classifies present-but-falsy required arg with unmatched shape as invalid_argument_shape", () => {
+			// attempt_completion requires `result`. The field is present (not
+			// undefined) so the "missing required" check passes, but its falsy
+			// value fails structural construction (the parser builds nativeArgs
+			// only when `result` is truthy). This yields invalid_argument_shape
+			// rather than missing_required_arguments.
+			NativeToolCallParser.parseToolCall({
+				id: "call_shape_mismatch",
+				name: "attempt_completion",
+				arguments: JSON.stringify({ result: 0 }),
+			})
+
+			const failure = NativeToolCallParser.consumeParseFailure("call_shape_mismatch")
+			expect(failure?.kind).toBe("invalid_argument_shape")
+			expect(failure?.missingParameters).toEqual([])
+		})
+	})
+
+	describe("streaming state inspection (ghost quarantine support)", () => {
+		afterEach(() => {
+			// Always clear streaming state so leftovers cannot leak between tests.
+			NativeToolCallParser.clearAllStreamingToolCalls()
+		})
+
+		it("getStreamingToolCallState returns undefined for an unknown id", () => {
+			expect(NativeToolCallParser.getStreamingToolCallState("missing-id")).toBeUndefined()
+		})
+
+		it("getStreamingToolCallState returns a snapshot of the in-progress tool call", () => {
+			const id = "toolu_state_123"
+			NativeToolCallParser.startStreamingToolCall(id, "read_file")
+			NativeToolCallParser.processStreamingChunk(id, JSON.stringify({ path: "demo.ts" }))
+
+			const state = NativeToolCallParser.getStreamingToolCallState(id)
+
+			expect(state).toBeDefined()
+			expect(state?.id).toBe(id)
+			expect(state?.name).toBe("read_file")
+			// Arguments are progressively accumulated as the stream is processed.
+			expect(typeof state?.argumentsAccumulator).toBe("string")
+			expect(state?.argumentsAccumulator.length).toBeGreaterThan(0)
+		})
+
+		it("discardStreamingToolCall removes the streaming entry without finalizing it", () => {
+			const id = "toolu_discard_123"
+			NativeToolCallParser.startStreamingToolCall(id, "read_file")
+			NativeToolCallParser.processStreamingChunk(id, JSON.stringify({ path: "demo.ts" }))
+
+			// Sanity check: state is present before discarding.
+			expect(NativeToolCallParser.getStreamingToolCallState(id)).toBeDefined()
+
+			const removed = NativeToolCallParser.discardStreamingToolCall(id)
+
+			expect(removed).toBe(true)
+			// State must be gone so subsequent reads return undefined.
+			expect(NativeToolCallParser.getStreamingToolCallState(id)).toBeUndefined()
+		})
+
+		it("discardStreamingToolCall returns false for an unknown id (idempotent no-op)", () => {
+			expect(NativeToolCallParser.discardStreamingToolCall("never-streamed")).toBe(false)
+		})
 	})
 })

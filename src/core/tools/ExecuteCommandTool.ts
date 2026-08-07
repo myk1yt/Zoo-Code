@@ -119,6 +119,22 @@ interface ExecuteCommandParams {
 	timeout?: number
 }
 
+export function formatDcgBlockedMessage(reason?: string, ruleId?: string): string {
+	if (reason && ruleId) {
+		return t("tools:executeCommand.destructiveCommandGuard.blockedWithReasonAndRule", { reason, ruleId })
+	}
+
+	if (reason) {
+		return t("tools:executeCommand.destructiveCommandGuard.blockedWithReason", { reason })
+	}
+
+	if (ruleId) {
+		return t("tools:executeCommand.destructiveCommandGuard.blockedWithRule", { ruleId })
+	}
+
+	return t("tools:executeCommand.destructiveCommandGuard.blocked")
+}
+
 export function resolveAgentTimeoutMs(timeoutSeconds: number | null | undefined): number {
 	const requestedAgentTimeout = typeof timeoutSeconds === "number" && timeoutSeconds > 0 ? timeoutSeconds * 1000 : 0
 

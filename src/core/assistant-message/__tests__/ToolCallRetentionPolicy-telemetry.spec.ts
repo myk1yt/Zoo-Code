@@ -15,10 +15,7 @@ vi.mock("@roo-code/telemetry", () => ({
 }))
 
 import { TelemetryService } from "@roo-code/telemetry"
-import {
-	emitGhostDropTelemetry,
-	emitMaxOneEnforcementTelemetry,
-} from "../ToolCallRetentionPolicy"
+import { emitGhostDropTelemetry, emitMaxOneEnforcementTelemetry } from "../ToolCallRetentionPolicy"
 
 const mockCaptureToolCallEnforcement = TelemetryService.instance.captureToolCallEnforcement as unknown as Mock
 const mockHasInstance = TelemetryService.hasInstance as unknown as Mock
