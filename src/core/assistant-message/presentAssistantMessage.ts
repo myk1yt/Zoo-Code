@@ -1,4 +1,3 @@
-import { serializeError } from "serialize-error"
 import { Anthropic } from "@anthropic-ai/sdk"
 
 import type { ToolName, ClineAsk, ToolProgressStatus } from "@roo-code/types"
@@ -13,6 +12,8 @@ import type { ToolParamName, ToolResponse, ToolUse, McpToolUse } from "../../sha
 
 import { AskIgnoredError } from "../task/AskIgnoredError"
 import { Task } from "../task/Task"
+
+import { buildStructuredErrorContent, formatConciseErrorMessage } from "./structuredError"
 
 import { listFilesTool } from "../tools/ListFilesTool"
 import { readFileTool } from "../tools/ReadFileTool"
@@ -133,7 +134,7 @@ export async function presentAssistantMessage(cline: Task) {
 			// Store approval feedback to merge into tool result (GitHub #10465)
 			let approvalFeedback: { text: string; images?: string[] } | undefined
 
-			const pushToolResult = (content: ToolResponse, feedbackImages?: string[]) => {
+			const pushToolResult = (content: ToolResponse, isError: boolean = false) => {
 				if (hasToolResult) {
 					console.warn(
 						`[presentAssistantMessage] Skipping duplicate tool_result for mcp_tool_use: ${toolCallId}`,
@@ -171,6 +172,7 @@ export async function presentAssistantMessage(cline: Task) {
 						type: "tool_result",
 						tool_use_id: sanitizeToolUseId(toolCallId),
 						content: resultContent,
+						...(isError ? { is_error: true } : {}),
 					})
 
 					if (imageBlocks.length > 0) {
@@ -225,12 +227,20 @@ export async function presentAssistantMessage(cline: Task) {
 				if (error instanceof AskIgnoredError) {
 					return
 				}
-				const errorString = `Error ${action}: ${JSON.stringify(serializeError(error))}`
-				await cline.say(
-					"error",
-					`Error ${action}:\n${error.message ?? JSON.stringify(serializeError(error), null, 2)}`,
+
+				// Structured error presentation with WHAT/WHY/NEXT format. Retry
+				// guidance and occurrence are derived from the error itself so the
+				// model is not told to retry non-retryable failures forever.
+				const structuredErrorContent = buildStructuredErrorContent(
+					cline,
+					action,
+					error,
+					"TOOL_EXECUTION/ERROR_EXECUTION/001",
 				)
-				pushToolResult(formatResponse.toolError(errorString))
+
+				pushToolResult(structuredErrorContent, true)
+
+				await cline.say("error", formatConciseErrorMessage(action, error))
 			}
 
 			if (!mcpBlock.partial) {
@@ -445,7 +455,7 @@ export async function presentAssistantMessage(cline: Task) {
 			// Store approval feedback to merge into tool result (GitHub #10465)
 			let approvalFeedback: { text: string; images?: string[] } | undefined
 
-			const pushToolResult = (content: ToolResponse) => {
+			const pushToolResult = (content: ToolResponse, isError: boolean = false) => {
 				// Native tool calling: only allow ONE tool_result per tool call
 				if (hasToolResult) {
 					console.warn(
@@ -481,6 +491,7 @@ export async function presentAssistantMessage(cline: Task) {
 					type: "tool_result",
 					tool_use_id: sanitizeToolUseId(toolCallId),
 					content: resultContent,
+					...(isError ? { is_error: true } : {}),
 				})
 
 				if (imageBlocks.length > 0) {
@@ -542,14 +553,20 @@ export async function presentAssistantMessage(cline: Task) {
 				if (error instanceof AskIgnoredError) {
 					return
 				}
-				const errorString = `Error ${action}: ${JSON.stringify(serializeError(error))}`
 
-				await cline.say(
-					"error",
-					`Error ${action}:\n${error.message ?? JSON.stringify(serializeError(error), null, 2)}`,
+				// Structured error presentation with WHAT/WHY/NEXT format. Retry
+				// guidance and occurrence are derived from the error itself so the
+				// model is not told to retry non-retryable failures forever.
+				const structuredErrorContent = buildStructuredErrorContent(
+					cline,
+					action,
+					error,
+					"TOOL_EXECUTION/ERROR_EXECUTION/002",
 				)
 
-				pushToolResult(formatResponse.toolError(errorString))
+				pushToolResult(structuredErrorContent, true)
+
+				await cline.say("error", formatConciseErrorMessage(action, error))
 			}
 
 			if (!block.partial) {
