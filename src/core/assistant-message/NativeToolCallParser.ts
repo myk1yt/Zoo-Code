@@ -39,6 +39,32 @@ type NativeArgsFor<TName extends ToolName> = TName extends keyof NativeToolArgs 
 export type ToolCallStreamEvent = ApiStreamToolCallStartChunk | ApiStreamToolCallDeltaChunk | ApiStreamToolCallEndChunk
 
 /**
+ * Discriminated union for parser failure kinds.
+ *
+ * - `json_syntax`: The arguments string could not be parsed as JSON.
+ * - `missing_required_arguments`: The JSON was valid but one or more required
+ *   fields were absent (including the empty-object case).
+ * - `invalid_argument_shape`: The JSON was valid and required field names were
+ *   present, but the structural shape did not match the tool schema (e.g. a
+ *   field had the wrong type or the value could not be coerced).
+ */
+export type ParserFailureKind = "json_syntax" | "missing_required_arguments" | "invalid_argument_shape"
+
+/**
+ * Typed, sanitized descriptor for a parser failure.
+ *
+ * IMPORTANT: This descriptor MUST NOT contain raw argument bodies, file paths,
+ * commands, task IDs, or secrets. It carries only structural facts needed for
+ * error classification and model guidance.
+ */
+export interface NativeToolParseFailure {
+	kind: ParserFailureKind
+	toolName?: string
+	missingParameters?: string[] // Known missing required field names from parser's tool contract
+	emptyArguments?: boolean // true if the input was {} or ""
+}
+
+/**
  * Parser for native tool calls (OpenAI-style function calling).
  * Converts native tool call format to ToolUse format for compatibility
  * with existing tool execution infrastructure.
@@ -72,6 +98,118 @@ export class NativeToolCallParser {
 			deltaBuffer: string[]
 		}
 	>()
+
+	/**
+	 * Stores JSON.parse error messages keyed by tool call ID.
+	 * When parseToolCall() catches a JSON.parse failure, it records the error
+	 * message here so it can be retrieved later via {@link consumeParseError}
+	 * / {@link hasParseError} (currently exercised by tests and diagnostics;
+	 * no production consumer exists). Entries persist until consumed or until
+	 * {@link clearParseFailures} runs at the start of the next API request.
+	 *
+	 * @deprecated Use {@link parseFailures} and {@link consumeParseFailure} for
+	 * typed failure descriptors. This legacy string map is retained only as a
+	 * compatibility wrapper for human diagnostics.
+	 */
+	private static parseErrors = new Map<string, string>()
+
+	/**
+	 * Stores typed parser failure descriptors keyed by tool call ID.
+	 * When parseToolCall() catches any failure (JSON syntax, missing required
+	 * arguments, or invalid argument shape), it records a typed descriptor here
+	 * so downstream consumers can classify the failure precisely instead of
+	 * relying on raw error strings. Entries persist until consumed via
+	 * {@link consumeParseFailure} or until {@link clearParseFailures} runs at
+	 * the start of the next API request.
+	 */
+	private static parseFailures = new Map<string, NativeToolParseFailure>()
+
+	/**
+	 * Required parameter names for each native tool, derived from
+	 * {@link NativeToolArgs}. Used to classify missing-required-arguments
+	 * failures with precise field names.
+	 */
+	private static readonly REQUIRED_PARAMETERS: Record<string, string[]> = {
+		access_mcp_resource: ["server_name", "uri"],
+		read_file: ["path"],
+		read_command_output: ["artifact_id"],
+		attempt_completion: ["result"],
+		execute_command: ["command"],
+		apply_diff: ["path", "diff"],
+		edit: ["file_path", "old_string", "new_string"],
+		search_and_replace: ["file_path", "old_string", "new_string"],
+		search_replace: ["file_path", "old_string", "new_string"],
+		edit_file: ["file_path", "old_string", "new_string"],
+		apply_patch: ["patch"],
+		list_files: ["path"],
+		new_task: ["mode", "message"],
+		ask_followup_question: ["question", "follow_up"],
+		codebase_search: ["query"],
+		generate_image: ["prompt", "path"],
+		run_slash_command: ["command"],
+		skill: ["skill"],
+		search_files: ["path", "regex"],
+		switch_mode: ["mode_slug", "reason"],
+		update_todo_list: ["todos"],
+		use_mcp_tool: ["server_name", "tool_name"],
+		write_to_file: ["path", "content"],
+	}
+
+	/**
+	 * Retrieve and remove the typed parse failure descriptor for a given tool
+	 * call ID. Returns undefined if no failure was recorded or if it was
+	 * already consumed.
+	 *
+	 * Atomic consume-and-delete, matching the lifecycle of the legacy
+	 * {@link consumeParseError} string side channel.
+	 */
+	public static consumeParseFailure(toolCallId: string): NativeToolParseFailure | undefined {
+		const failure = NativeToolCallParser.parseFailures.get(toolCallId)
+		if (failure !== undefined) {
+			NativeToolCallParser.parseFailures.delete(toolCallId)
+		}
+		return failure
+	}
+
+	/**
+	 * Retrieve and remove the parse error for a given tool call ID.
+	 * Returns undefined if no parse error was recorded.
+	 *
+	 * @deprecated Compatibility wrapper. New production code should use
+	 * {@link consumeParseFailure} for typed failure descriptors. This method
+	 * returns the string representation for human diagnostics only.
+	 */
+	public static consumeParseError(toolCallId: string): string | undefined {
+		const error = NativeToolCallParser.parseErrors.get(toolCallId)
+		if (error !== undefined) {
+			NativeToolCallParser.parseErrors.delete(toolCallId)
+		}
+		return error
+	}
+
+	/**
+	 * Check whether a parse error was recorded for a given tool call ID
+	 * without consuming it.
+	 */
+	public static hasParseError(toolCallId: string): boolean {
+		return NativeToolCallParser.parseErrors.has(toolCallId)
+	}
+
+	/**
+	 * Clear all recorded parse failures — both the typed {@link parseFailures}
+	 * descriptors and the legacy {@link parseErrors} strings.
+	 *
+	 * Called alongside {@link clearAllStreamingToolCalls} /
+	 * {@link clearRawChunkState} when a new API request starts (see
+	 * Task.recursivelyMakeClineRequests), so failures recorded by an
+	 * interrupted or completed stream do not accumulate for the lifetime of
+	 * the extension host. The consume* APIs keep working for per-call
+	 * retrieval; this clears everything still unconsumed.
+	 */
+	public static clearParseFailures(): void {
+		NativeToolCallParser.parseFailures.clear()
+		NativeToolCallParser.parseErrors.clear()
+	}
 
 	private static coerceOptionalBoolean(value: unknown): boolean | undefined {
 		if (typeof value === "boolean") {
@@ -223,6 +361,45 @@ export class NativeToolCallParser {
 			name,
 			argumentsAccumulator: "",
 		})
+	}
+
+	/**
+	 * Get the current state of a streaming tool call.
+	 *
+	 * Returns a snapshot object or undefined if the ID is not being tracked.
+	 */
+	public static getStreamingToolCallState(id: string):
+		| {
+				id: string
+				name: string
+				argumentsAccumulator: string
+		  }
+		| undefined {
+		const entry = this.streamingToolCalls.get(id)
+		if (!entry) {
+			return undefined
+		}
+		return {
+			id: entry.id,
+			name: entry.name,
+			argumentsAccumulator: entry.argumentsAccumulator,
+		}
+	}
+
+	/**
+	 * Discard a streaming tool call's state without finalizing it.
+	 *
+	 * This is used by the ghost quarantine path: when a call is classified as
+	 * `drop-provably-empty` (no name, no arguments, stream ended), its
+	 * streaming state is removed so it never becomes a `tool_use` block in
+	 * `assistantMessageContent` and never receives a `tool_result`.
+	 *
+	 * This is the ONLY safe way to remove a call before history insertion.
+	 * Once a `tool_use` block is pushed into `assistantMessageContent`, it
+	 * MUST receive exactly one matching `tool_result`.
+	 */
+	public static discardStreamingToolCall(id: string): boolean {
+		return this.streamingToolCalls.delete(id)
 	}
 
 	/**
@@ -1003,11 +1180,43 @@ export class NativeToolCallParser {
 			// Native-only: core tools must always have typed nativeArgs.
 			// If we couldn't construct it, the model produced an invalid tool call payload.
 			if (!nativeArgs && !customToolRegistry.has(resolvedName)) {
-				throw new Error(
-					`[NativeToolCallParser] Invalid arguments for tool '${resolvedName}'. ` +
-						`Native tool calls require a valid JSON payload matching the tool schema. ` +
-						`Received: ${JSON.stringify(args)}`,
-				)
+				// Classify the failure precisely so the catch block can store a
+				// typed descriptor instead of a raw error string.
+				//
+				// If args is not a plain object (e.g. a primitive, array, or null),
+				// the structural shape is fundamentally wrong.
+				const isPlainObject = typeof args === "object" && args !== null && !Array.isArray(args)
+
+				if (!isPlainObject) {
+					throw {
+						__parserFailureKind: "invalid_argument_shape" as const,
+						toolName: resolvedName as string,
+						missingParameters: [],
+						emptyArguments: false,
+					}
+				}
+
+				const required = NativeToolCallParser.REQUIRED_PARAMETERS[resolvedName as string] ?? []
+				const missing = required.filter((p) => args[p] === undefined)
+				const isEmpty = Object.keys(args).length === 0
+
+				if (missing.length > 0) {
+					throw {
+						__parserFailureKind: "missing_required_arguments" as const,
+						toolName: resolvedName as string,
+						missingParameters: missing,
+						emptyArguments: isEmpty,
+					}
+				}
+
+				// Required fields are present but the structural shape didn't match
+				// any known pattern in the switch above.
+				throw {
+					__parserFailureKind: "invalid_argument_shape" as const,
+					toolName: resolvedName as string,
+					missingParameters: [],
+					emptyArguments: isEmpty,
+				}
 			}
 
 			const result: ToolUse<TName> = {
@@ -1030,12 +1239,64 @@ export class NativeToolCallParser {
 
 			return result
 		} catch (error) {
-			console.error(
-				`Failed to parse tool call arguments: ${error instanceof Error ? error.message : String(error)}`,
-			)
+			// Determine whether this is a JSON.parse syntax failure or a
+			// post-parse structural failure (missing required arguments or
+			// invalid argument shape). The structural failures are thrown as
+			// tagged objects with __parserFailureKind; JSON.parse failures are
+			// standard SyntaxError instances.
+			const failure = NativeToolCallParser.classifyParseFailure(error, resolvedName as string)
+
+			const errorMessage = error instanceof Error ? error.message : String(error)
+
+			console.error(`Failed to parse tool call arguments: ${errorMessage}`)
 
 			console.error(`Tool call: ${JSON.stringify(toolCall, null, 2)}`)
+
+			// Store the legacy string error for backward compatibility with
+			// existing callers of consumeParseError().
+			NativeToolCallParser.parseErrors.set(toolCall.id, errorMessage)
+
+			// Store the typed failure descriptor for new callers that use
+			// consumeParseFailure().
+			NativeToolCallParser.parseFailures.set(toolCall.id, failure)
+
 			return null
+		}
+	}
+
+	/**
+	 * Classify a caught error from parseToolCall() into a typed
+	 * {@link NativeToolParseFailure} descriptor.
+	 *
+	 * - If the error is a tagged object with `__parserFailureKind`, it was
+	 *   thrown by the structural validation logic and carries precise metadata.
+	 * - Otherwise, the error originated from JSON.parse (a SyntaxError) and is
+	 *   classified as `json_syntax`.
+	 */
+	private static classifyParseFailure(error: unknown, toolName: string): NativeToolParseFailure {
+		// Check for tagged structural failure objects thrown by the validation
+		// logic above. These are not Error instances — they are plain objects
+		// with a __parserFailureKind discriminator.
+		if (typeof error === "object" && error !== null && "__parserFailureKind" in error) {
+			const tagged = error as {
+				__parserFailureKind: ParserFailureKind
+				toolName?: string
+				missingParameters?: string[]
+				emptyArguments?: boolean
+			}
+			return {
+				kind: tagged.__parserFailureKind,
+				toolName: tagged.toolName ?? toolName,
+				missingParameters: tagged.missingParameters,
+				emptyArguments: tagged.emptyArguments,
+			}
+		}
+
+		// Any other error (SyntaxError from JSON.parse, or unexpected runtime
+		// error) is classified as a JSON syntax failure.
+		return {
+			kind: "json_syntax",
+			toolName,
 		}
 	}
 

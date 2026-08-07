@@ -1,4 +1,5 @@
 import OpenAI from "openai"
+import type { Anthropic } from "@anthropic-ai/sdk"
 
 import { mimoModels, mimoDefaultModelId, MIMO_DEFAULT_TEMPERATURE, type ModelInfo } from "@roo-code/types"
 
@@ -14,6 +15,134 @@ import { extractReasoningFromDelta } from "./utils/extract-reasoning"
 import { OpenAiHandler } from "./openai"
 import type { ApiHandlerCreateMessageMetadata } from "../index"
 import { sanitizeOpenAiCallId } from "../../utils/tool-id"
+
+/**
+ * Detects whether an API error is specifically caused by the endpoint
+ * rejecting the `parallel_tool_calls` field. Some OpenAI-compatible
+ * endpoints don't support this field and return a 400 Bad Request with
+ * a message referencing the unrecognized parameter.
+ */
+function isParallelToolCallsRejected(error: unknown): boolean {
+	if (error instanceof Error) {
+		const message = error.message.toLowerCase()
+		const status = (error as { status?: number }).status
+		// OpenAI SDK APIError carries an HTTP status; some endpoints return 400
+		if (message.includes("parallel_tool_calls") || (status === 400 && message.includes("unrecognized"))) {
+			return true
+		}
+	}
+	return false
+}
+
+/**
+ * Detects whether an API error is specifically caused by the endpoint
+ * rejecting the `strict` tool flag or a hardened strict-mode schema
+ * (`additionalProperties: false`, forced `required`, ...). OpenAI-compatible
+ * endpoints that don't support structured outputs typically return a 400
+ * Bad Request naming the offending field.
+ *
+ * Detection is intentionally narrow (400 status plus a schema-specific
+ * keyword) so unrelated 400s — e.g. MiMo's missing-reasoning_content
+ * rejection — are NOT mistaken for schema rejections and retried pointlessly.
+ */
+function isStrictToolSchemaRejected(error: unknown): boolean {
+	if (error instanceof Error) {
+		const message = error.message.toLowerCase()
+		const status = (error as { status?: number }).status
+		if (status !== 400) {
+			return false
+		}
+		if (message.includes("strict")) {
+			return true
+		}
+		const mentionsTools = message.includes("tool") || message.includes("function")
+		const mentionsSchemaField =
+			message.includes("additionalproperties") || message.includes("additional_properties")
+		return mentionsTools && mentionsSchemaField
+	}
+	return false
+}
+
+/**
+ * Removes the `strict` flag from function tools, keeping their original
+ * (non-hardened) schemas. Used by the one-time retry fallback when an
+ * endpoint rejects strict tool schemas.
+ */
+function stripStrictFromTools(tools: OpenAI.Chat.ChatCompletionTool[]): OpenAI.Chat.ChatCompletionTool[] {
+	return tools.map((tool) => {
+		if (tool.type !== "function") {
+			return tool
+		}
+		const { strict: _omit, ...functionWithoutStrict } = tool.function
+		return { ...tool, function: functionWithoutStrict }
+	})
+}
+
+/**
+ * Filters a streamed delta so that only the FIRST tool call (index 0) survives.
+ * MiMo v2.5 Pro ignores `parallel_tool_calls: false` and may emit multiple
+ * parallel tool_calls in one turn. Downstream (ToolCallRetentionPolicy) is
+ * configured for maxCallsPerTurn === 1, which rejects ALL calls when two or
+ * more valid calls arrive; dropping extras here lets the first call execute
+ * normally instead of failing the whole turn.
+ *
+ * Some providers reuse `index: 0` with a NEW id for a disguised second
+ * parallel call. Once such an id chunk is dropped, its subsequent id-less
+ * argument-continuation fragments must be dropped too — an id-less fragment
+ * belongs to the most recent id chunk seen at that index — otherwise they
+ * concatenate into the FIRST call's argument accumulator and corrupt its
+ * JSON. `state.droppedIndexes` tracks indexes currently owned by a dropped
+ * call.
+ *
+ * Confined to MimoHandler — no other provider is affected.
+ */
+function filterToFirstToolCall(
+	delta: OpenAI.Chat.Completions.ChatCompletionChunk.Choice.Delta,
+	state: { firstToolCallId: string | undefined; droppedIndexes: Set<number> },
+): OpenAI.Chat.Completions.ChatCompletionChunk.Choice.Delta {
+	if (!delta.tool_calls || delta.tool_calls.length === 0) {
+		return delta
+	}
+
+	const kept = delta.tool_calls.filter((toolCall) => {
+		const index = toolCall.index ?? 0
+		if (index > 0) {
+			return false // parallel call — drop
+		}
+		if (toolCall.id) {
+			if (state.firstToolCallId === undefined) {
+				state.firstToolCallId = toolCall.id
+				return true
+			}
+			if (toolCall.id === state.firstToolCallId) {
+				// Provider re-sent the kept call's id — this index belongs to
+				// the kept call again.
+				state.droppedIndexes.delete(index)
+				return true
+			}
+			// A second distinct id at index 0 is a disguised parallel call.
+			// Mark the index so its argument fragments are dropped as well.
+			state.droppedIndexes.add(index)
+			return false
+		}
+		// Argument-continuation fragment for the most recent id chunk seen at
+		// this index — keep it only if that call was not dropped.
+		return !state.droppedIndexes.has(index)
+	})
+
+	if (kept.length === delta.tool_calls.length) {
+		return delta
+	}
+	if (kept.length === 0) {
+		const { tool_calls: _omit, ...rest } = delta
+		return rest
+	}
+	return { ...delta, tool_calls: kept }
+}
+
+type MiMoCompletionParams = OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming & {
+	extra_body: { thinking: { type: string } }
+}
 
 /**
  * MiMoHandler extends OpenAiHandler with MiMo-specific adaptations.
@@ -68,7 +197,7 @@ export class MimoHandler extends OpenAiHandler {
 	 */
 	override async *createMessage(
 		systemPrompt: string,
-		messages: any[],
+		messages: Anthropic.Messages.MessageParam[],
 		metadata?: ApiHandlerCreateMessageMetadata,
 	): ApiStream {
 		const { id: modelId, info: modelInfo } = this.getModel()
@@ -85,7 +214,7 @@ export class MimoHandler extends OpenAiHandler {
 		// https://developer.puter.com/ai/xiaomi/mimo-v2.5-pro/
 		// Note: temperature is omitted because MiMo forces it to 1.0 when thinking mode
 		// is enabled, regardless of what is passed (see model-hyperparameters docs).
-		const params: Record<string, any> = {
+		const params: MiMoCompletionParams = {
 			model: modelId,
 			messages: [{ role: "system", content: systemPrompt }, ...convertedMessages],
 			stream: true,
@@ -95,31 +224,63 @@ export class MimoHandler extends OpenAiHandler {
 		}
 
 		if (tools && tools.length > 0) {
-			params.tools = tools
+			params.tools = this.convertToolsForOpenAI(tools)
+		}
+
+		// Honor tool_choice from metadata (OpenAI-compatible passthrough)
+		if (metadata?.tool_choice !== undefined) {
+			params.tool_choice = metadata.tool_choice
+		}
+
+		// Send parallel_tool_calls based on resolved metadata policy.
+		// Sub-task 1's resolver sets parallelToolCalls=false for MiMo to
+		// prevent malformed parallel tool calls from MiMo v2.5 Pro.
+		if (metadata?.parallelToolCalls !== undefined) {
+			params.parallel_tool_calls = metadata.parallelToolCalls
 		}
 
 		let stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>
 		try {
-			stream = (await this.client.chat.completions.create(params as any)) as any
+			stream = await this.client.chat.completions.create(params)
 		} catch (error) {
-			throw handleProviderError(error, "MiMo")
+			// Fallback: if the endpoint rejects the parallel_tool_calls field,
+			// retry once without it. Some OpenAI-compatible endpoints don't
+			// support this field and return a 400 Bad Request.
+			if (params.parallel_tool_calls !== undefined && isParallelToolCallsRejected(error)) {
+				const { parallel_tool_calls: _omit, ...paramsWithoutParallel } = params
+				stream = await this.client.chat.completions.create(paramsWithoutParallel as MiMoCompletionParams)
+			} else if (params.tools !== undefined && isStrictToolSchemaRejected(error)) {
+				// Fallback: if the endpoint rejects the strict tool flag or a
+				// hardened strict-mode schema, retry once with the original
+				// schemas and no strict flag. Build a new params object so the
+				// rejected request is left untouched.
+				const paramsWithoutStrict = { ...params, tools: stripStrictFromTools(tools ?? []) }
+				stream = await this.client.chat.completions.create(paramsWithoutStrict)
+			} else {
+				throw handleProviderError(error, "MiMo")
+			}
 		}
 
 		let lastUsage: OpenAI.CompletionUsage | undefined
 		const activeToolCallIds = new Set<string>()
+		const firstCallState: { firstToolCallId: string | undefined; droppedIndexes: Set<number> } = {
+			firstToolCallId: undefined,
+			droppedIndexes: new Set<number>(),
+		}
 
 		for await (const chunk of stream) {
 			const delta = chunk.choices?.[0]?.delta ?? {}
 			const finishReason = chunk.choices?.[0]?.finish_reason
-			const sanitizedDelta = delta.tool_calls
+			const filteredDelta = filterToFirstToolCall(delta, firstCallState)
+			const sanitizedDelta = filteredDelta.tool_calls
 				? {
-						...delta,
-						tool_calls: delta.tool_calls.map((toolCall) => ({
+						...filteredDelta,
+						tool_calls: filteredDelta.tool_calls.map((toolCall) => ({
 							...toolCall,
 							id: toolCall.id ? sanitizeOpenAiCallId(toolCall.id) : toolCall.id,
 						})),
 					}
-				: delta
+				: filteredDelta
 
 			if (delta.content) {
 				yield {
@@ -143,7 +304,9 @@ export class MimoHandler extends OpenAiHandler {
 		if (lastUsage) {
 			const inputTokens = lastUsage?.prompt_tokens || 0
 			const outputTokens = lastUsage?.completion_tokens || 0
-			const cacheWriteTokens = (lastUsage?.prompt_tokens_details as any)?.cache_write_tokens || 0
+			const cacheWriteTokens =
+				(lastUsage?.prompt_tokens_details as { cache_write_tokens?: number } | undefined)?.cache_write_tokens ||
+				0
 			const cacheReadTokens = lastUsage?.prompt_tokens_details?.cached_tokens || 0
 
 			const { totalCost } = calculateApiCostOpenAI(

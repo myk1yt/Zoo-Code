@@ -60,7 +60,7 @@ function buildExecuteCommandDescription(env?: ResolvedCommandEnvironment): strin
 
 const COMMAND_PARAMETER_DESCRIPTION = `Shell command to execute`
 
-const CWD_PARAMETER_DESCRIPTION = `Optional working directory for the command, relative or absolute`
+const CWD_PARAMETER_DESCRIPTION = `Optional working directory for the command, relative or absolute. Must be a string when provided; omit to use the default workspace directory.`
 
 const TIMEOUT_PARAMETER_DESCRIPTION = `Timeout in seconds. When exceeded, the command continues running in the background and output collected so far is returned. Use this for long-running processes like dev servers, file watchers, or any command that may not exit on its own`
 

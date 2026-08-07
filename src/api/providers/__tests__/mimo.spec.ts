@@ -1,5 +1,8 @@
+import type { ApiStreamChunk } from "../../transform/stream"
+import type { DeepSeekAssistantMessage } from "../../transform/r1-format"
+import type OpenAI from "openai"
+
 const mockCreate = vi.fn()
-import { asyncStreamFrom, collectStream } from "../../../test-utils/stream"
 vi.mock("openai", () => {
 	return {
 		__esModule: true,
@@ -7,23 +10,25 @@ vi.mock("openai", () => {
 			return {
 				chat: {
 					completions: {
-						create: mockCreate.mockImplementation(async (options) =>
-							asyncStreamFrom([
-								{
-									choices: [{ delta: { content: "Test response" }, index: 0 }],
-									usage: null,
+						create: mockCreate.mockImplementation(async (_options: unknown) => {
+							return {
+								[Symbol.asyncIterator]: async function* () {
+									yield {
+										choices: [{ delta: { content: "Test response" }, index: 0 }],
+										usage: null,
+									}
+									yield {
+										choices: [{ delta: {}, index: 0, finish_reason: "stop" }],
+										usage: {
+											prompt_tokens: 10,
+											completion_tokens: 5,
+											total_tokens: 15,
+											prompt_tokens_details: { cached_tokens: 2 },
+										},
+									}
 								},
-								{
-									choices: [{ delta: {}, index: 0, finish_reason: "stop" }],
-									usage: {
-										prompt_tokens: 10,
-										completion_tokens: 5,
-										total_tokens: 15,
-										prompt_tokens_details: { cached_tokens: 2 },
-									},
-								},
-							]),
-						),
+							}
+						}),
 					},
 				},
 			}
@@ -37,6 +42,7 @@ import type { ApiHandlerOptions } from "../../../shared/api"
 import { MimoHandler } from "../mimo"
 import { convertToR1Format } from "../../transform/r1-format"
 import { sanitizeOpenAiCallId } from "../../../utils/tool-id"
+import type { ApiHandlerCreateMessageMetadata } from "../../index"
 
 describe("MimoHandler", () => {
 	let handler: MimoHandler
@@ -68,13 +74,15 @@ describe("MimoHandler", () => {
 
 		it("should use Singapore base URL if not provided", () => {
 			const h = new MimoHandler({ ...mockOptions, mimoBaseUrl: undefined })
-			expect((h as any).options.openAiBaseUrl).toBe("https://token-plan-sgp.xiaomimimo.com/v1")
+			expect((h as unknown as { options: { openAiBaseUrl: string } }).options.openAiBaseUrl).toBe(
+				"https://token-plan-sgp.xiaomimimo.com/v1",
+			)
 		})
 
 		it("should use custom base URL when provided", () => {
 			const customUrl = "https://api.xiaomimimo.com/v1"
 			const h = new MimoHandler({ ...mockOptions, mimoBaseUrl: customUrl })
-			expect((h as any).options.openAiBaseUrl).toBe(customUrl)
+			expect((h as unknown as { options: { openAiBaseUrl: string } }).options.openAiBaseUrl).toBe(customUrl)
 		})
 	})
 
@@ -116,16 +124,19 @@ describe("MimoHandler", () => {
 				{
 					role: "assistant",
 					content: [
-						{ type: "reasoning" as const, text: "Let me think..." } as any,
+						{
+							type: "reasoning" as const,
+							text: "Let me think...",
+						} as unknown as Anthropic.Messages.MessageParam["content"][number],
 						{ type: "text" as const, text: "Here is the answer" },
-					],
+					] as unknown as Anthropic.Messages.MessageParam["content"],
 				},
 			]
 			const result = convert(messages)
 			expect(result).toHaveLength(1)
 			expect(result[0].role).toBe("assistant")
 			expect(result[0].content).toBe("Here is the answer")
-			expect((result[0] as any).reasoning_content).toBe("Let me think...")
+			expect((result[0] as DeepSeekAssistantMessage).reasoning_content).toBe("Let me think...")
 		})
 
 		it("should convert assistant message with tool_use blocks", () => {
@@ -145,11 +156,15 @@ describe("MimoHandler", () => {
 			]
 			const result = convert(messages)
 			expect(result).toHaveLength(1)
-			const msg = result[0] as any
+			const msg = result[0] as OpenAI.Chat.ChatCompletionAssistantMessageParam
 			expect(msg.tool_calls).toHaveLength(1)
-			expect(msg.tool_calls[0].id).toBe("call_123")
-			expect(msg.tool_calls[0].function.name).toBe("read_file")
-			expect(msg.tool_calls[0].function.arguments).toBe('{"path":"README.md"}')
+			expect(msg.tool_calls![0].id).toBe("call_123")
+			expect((msg.tool_calls![0] as OpenAI.Chat.ChatCompletionMessageFunctionToolCall).function.name).toBe(
+				"read_file",
+			)
+			expect((msg.tool_calls![0] as OpenAI.Chat.ChatCompletionMessageFunctionToolCall).function.arguments).toBe(
+				'{"path":"README.md"}',
+			)
 		})
 
 		it("should handle string-input tool_use (JSON string)", () => {
@@ -167,10 +182,14 @@ describe("MimoHandler", () => {
 				},
 			]
 			const result = convert(messages)
-			const msg = result[0] as any
+			const msg = result[0] as OpenAI.Chat.ChatCompletionAssistantMessageParam
 			expect(msg.tool_calls).toHaveLength(1)
-			expect(msg.tool_calls[0].function.name).toBe("read_file")
-			expect(msg.tool_calls[0].function.arguments).toContain("test.ts")
+			expect((msg.tool_calls![0] as OpenAI.Chat.ChatCompletionMessageFunctionToolCall).function.name).toBe(
+				"read_file",
+			)
+			expect(
+				(msg.tool_calls![0] as OpenAI.Chat.ChatCompletionMessageFunctionToolCall).function.arguments,
+			).toContain("test.ts")
 		})
 
 		it("should handle assistant message with string content", () => {
@@ -193,10 +212,10 @@ describe("MimoHandler", () => {
 					content: "Response after thinking",
 					reasoning_content: "My reasoning",
 				},
-			] as any[]
+			] as unknown as Anthropic.Messages.MessageParam[]
 			const result = convert(messages)
 			expect(result).toHaveLength(1)
-			expect((result[0] as any).reasoning_content).toBe("My reasoning")
+			expect((result[0] as DeepSeekAssistantMessage).reasoning_content).toBe("My reasoning")
 		})
 
 		it("should not add reasoning_content if empty string", () => {
@@ -206,9 +225,9 @@ describe("MimoHandler", () => {
 					content: "Response",
 					reasoning_content: "",
 				},
-			] as any[]
+			] as unknown as Anthropic.Messages.MessageParam[]
 			const result = convert(messages)
-			expect((result[0] as any).reasoning_content).toBeUndefined()
+			expect((result[0] as DeepSeekAssistantMessage).reasoning_content).toBeUndefined()
 		})
 
 		it("should convert user messages with tool_result blocks", () => {
@@ -225,7 +244,7 @@ describe("MimoHandler", () => {
 				},
 			]
 			const result = convert(messages)
-			const msg = result[0] as any
+			const msg = result[0] as OpenAI.Chat.ChatCompletionToolMessageParam
 			expect(msg.role).toBe("tool")
 			expect(msg.tool_call_id).toBe("call_123")
 			expect(msg.content).toBe("File contents here")
@@ -324,7 +343,10 @@ describe("MimoHandler", () => {
 				{
 					role: "assistant",
 					content: [
-						{ type: "reasoning" as const, text: "User wants to read a file" } as any,
+						{
+							type: "reasoning" as const,
+							text: "User wants to read a file",
+						} as unknown as Anthropic.Messages.MessageParam["content"][number],
 						{ type: "text" as const, text: "I'll read it" },
 						{
 							type: "tool_use" as const,
@@ -332,7 +354,7 @@ describe("MimoHandler", () => {
 							name: "read_file",
 							input: { path: "README.md" },
 						},
-					],
+					] as unknown as Anthropic.Messages.MessageParam["content"],
 				},
 				{
 					role: "user",
@@ -351,11 +373,11 @@ describe("MimoHandler", () => {
 			expect(result[0].role).toBe("user")
 			// assistant with reasoning + tool_calls
 			expect(result[1].role).toBe("assistant")
-			expect((result[1] as any).reasoning_content).toBe("User wants to read a file")
-			expect((result[1] as any).tool_calls).toHaveLength(1)
+			expect((result[1] as DeepSeekAssistantMessage).reasoning_content).toBe("User wants to read a file")
+			expect((result[1] as OpenAI.Chat.ChatCompletionAssistantMessageParam).tool_calls).toHaveLength(1)
 			// tool result
 			expect(result[2].role).toBe("tool")
-			expect((result[2] as any).tool_call_id).toBe("call_1")
+			expect((result[2] as OpenAI.Chat.ChatCompletionToolMessageParam).tool_call_id).toBe("call_1")
 		})
 	})
 
@@ -367,7 +389,9 @@ describe("MimoHandler", () => {
 
 			const stream = handler.createMessage("System prompt", messages)
 			// Consume the stream
-			await collectStream(stream)
+			for await (const _chunk of stream) {
+				// drain
+			}
 
 			expect(mockCreate).toHaveBeenCalledWith(
 				expect.objectContaining({
@@ -376,17 +400,404 @@ describe("MimoHandler", () => {
 			)
 		})
 
-		it("should not send parallel_tool_calls or tool_choice", async () => {
+		it("should omit parallel_tool_calls when metadata.parallelToolCalls is undefined", async () => {
 			const messages: Anthropic.Messages.MessageParam[] = [
 				{ role: "user", content: [{ type: "text", text: "Hello" }] },
 			]
 
 			const stream = handler.createMessage("System prompt", messages)
-			await collectStream(stream)
+			for await (const _chunk of stream) {
+				// drain
+			}
 
 			const params = mockCreate.mock.calls[0][0]
 			expect(params.parallel_tool_calls).toBeUndefined()
 			expect(params.tool_choice).toBeUndefined()
+		})
+
+		it("should send parallel_tool_calls: false when metadata.parallelToolCalls is false", async () => {
+			const messages: Anthropic.Messages.MessageParam[] = [
+				{ role: "user", content: [{ type: "text", text: "Hello" }] },
+			]
+
+			const stream = handler.createMessage("System prompt", messages, {
+				taskId: "test-task",
+				parallelToolCalls: false,
+			})
+			for await (const _chunk of stream) {
+				// drain
+			}
+
+			const params = mockCreate.mock.calls[0][0]
+			expect(params.parallel_tool_calls).toBe(false)
+		})
+
+		it("should send parallel_tool_calls: true when metadata.parallelToolCalls is true", async () => {
+			const messages: Anthropic.Messages.MessageParam[] = [
+				{ role: "user", content: [{ type: "text", text: "Hello" }] },
+			]
+
+			const stream = handler.createMessage("System prompt", messages, {
+				taskId: "test-task",
+				parallelToolCalls: true,
+			})
+			for await (const _chunk of stream) {
+				// drain
+			}
+
+			const params = mockCreate.mock.calls[0][0]
+			expect(params.parallel_tool_calls).toBe(true)
+		})
+
+		it("should pass through tool_choice when provided in metadata", async () => {
+			const messages: Anthropic.Messages.MessageParam[] = [
+				{ role: "user", content: [{ type: "text", text: "Hello" }] },
+			]
+
+			const stream = handler.createMessage("System prompt", messages, {
+				taskId: "test-task",
+				tool_choice: "auto",
+			})
+			for await (const _chunk of stream) {
+				// drain
+			}
+
+			const params = mockCreate.mock.calls[0][0]
+			expect(params.tool_choice).toBe("auto")
+		})
+
+		it("should retry without parallel_tool_calls when endpoint rejects the field", async () => {
+			// First call rejects with a 400 error mentioning parallel_tool_calls
+			const rejectionError = Object.assign(
+				new Error("400 - Unrecognized request parameter: parallel_tool_calls"),
+				{
+					status: 400,
+				},
+			)
+			mockCreate.mockRejectedValueOnce(rejectionError)
+
+			// Second call (retry) succeeds
+			mockCreate.mockImplementationOnce(async () => ({
+				[Symbol.asyncIterator]: async function* () {
+					yield {
+						choices: [{ delta: { content: "Retried" }, index: 0 }],
+						usage: null,
+					}
+					yield {
+						choices: [{ delta: {}, index: 0, finish_reason: "stop" }],
+						usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+					}
+				},
+			}))
+
+			const messages: Anthropic.Messages.MessageParam[] = [
+				{ role: "user", content: [{ type: "text", text: "Hello" }] },
+			]
+
+			const stream = handler.createMessage("System prompt", messages, {
+				taskId: "test-task",
+				parallelToolCalls: false,
+			})
+
+			const chunks: ApiStreamChunk[] = []
+			for await (const chunk of stream) {
+				chunks.push(chunk)
+			}
+
+			// First call should have had parallel_tool_calls
+			const firstCallParams = mockCreate.mock.calls[0][0]
+			expect(firstCallParams.parallel_tool_calls).toBe(false)
+
+			// Second call (retry) should NOT have parallel_tool_calls
+			const retryCallParams = mockCreate.mock.calls[1][0]
+			expect(retryCallParams.parallel_tool_calls).toBeUndefined()
+
+			// Stream should have produced text from the retry
+			const textChunks = chunks.filter((c) => c.type === "text")
+			expect(textChunks.length).toBeGreaterThan(0)
+			expect(textChunks[0].text).toBe("Retried")
+		})
+
+		it("should retry without the strict flag when the endpoint rejects strict tool schemas", async () => {
+			// First call rejects with a 400 error naming the strict field
+			const rejectionError = Object.assign(new Error("400 - Unknown parameter: tools[0].function.strict"), {
+				status: 400,
+			})
+			mockCreate.mockRejectedValueOnce(rejectionError)
+
+			// Second call (retry) succeeds
+			mockCreate.mockImplementationOnce(async () => ({
+				[Symbol.asyncIterator]: async function* () {
+					yield {
+						choices: [{ delta: { content: "Retried" }, index: 0 }],
+						usage: null,
+					}
+					yield {
+						choices: [{ delta: {}, index: 0, finish_reason: "stop" }],
+						usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+					}
+				},
+			}))
+
+			const tools: OpenAI.Chat.ChatCompletionTool[] = [
+				{
+					type: "function",
+					function: {
+						name: "read_file",
+						description: "Read a file",
+						parameters: {
+							type: "object",
+							properties: { path: { type: "string" } },
+							required: ["path"],
+						},
+					},
+				},
+			]
+
+			const messages: Anthropic.Messages.MessageParam[] = [
+				{ role: "user", content: [{ type: "text", text: "Hello" }] },
+			]
+
+			const chunks: ApiStreamChunk[] = []
+			const stream = handler.createMessage("System prompt", messages, { taskId: "test-task", tools })
+			for await (const chunk of stream) {
+				chunks.push(chunk)
+			}
+
+			expect(mockCreate).toHaveBeenCalledTimes(2)
+
+			// First call sent tools with the strict flag applied
+			const firstCallParams = mockCreate.mock.calls[0][0]
+			expect(firstCallParams.tools[0].function).toHaveProperty("strict")
+
+			// Retry stripped the strict flag but kept the original schema
+			const retryCallParams = mockCreate.mock.calls[1][0]
+			expect(retryCallParams.tools).toHaveLength(1)
+			expect(retryCallParams.tools[0].function.name).toBe("read_file")
+			expect(retryCallParams.tools[0].function).not.toHaveProperty("strict")
+			expect(retryCallParams.tools[0].function.parameters).toEqual({
+				type: "object",
+				properties: { path: { type: "string" } },
+				required: ["path"],
+			})
+
+			const textChunks = chunks.filter((c) => c.type === "text")
+			expect(textChunks[0].text).toBe("Retried")
+		})
+
+		it("should retry without the strict flag when the endpoint rejects hardened schema fields", async () => {
+			// 400 naming additionalProperties in a tools context
+			const rejectionError = Object.assign(
+				new Error("400 - Invalid tools: additionalProperties is not a supported field"),
+				{ status: 400 },
+			)
+			mockCreate.mockRejectedValueOnce(rejectionError)
+
+			mockCreate.mockImplementationOnce(async () => ({
+				[Symbol.asyncIterator]: async function* () {
+					yield {
+						choices: [{ delta: { content: "Retried" }, index: 0 }],
+						usage: null,
+					}
+					yield {
+						choices: [{ delta: {}, index: 0, finish_reason: "stop" }],
+						usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+					}
+				},
+			}))
+
+			const tools: OpenAI.Chat.ChatCompletionTool[] = [
+				{
+					type: "function",
+					function: { name: "read_file", description: "Read", parameters: {} },
+				},
+			]
+
+			const messages: Anthropic.Messages.MessageParam[] = [
+				{ role: "user", content: [{ type: "text", text: "Hello" }] },
+			]
+
+			const stream = handler.createMessage("System prompt", messages, { taskId: "test-task", tools })
+			for await (const _chunk of stream) {
+				// drain
+			}
+
+			expect(mockCreate).toHaveBeenCalledTimes(2)
+			const retryCallParams = mockCreate.mock.calls[1][0]
+			expect(retryCallParams.tools[0].function).not.toHaveProperty("strict")
+		})
+
+		it("should not retry schema-unrelated 400 errors", async () => {
+			// A 400 about reasoning_content (not tool schemas) must NOT trigger
+			// the strict-schema fallback.
+			const rejectionError = Object.assign(
+				new Error("400 - reasoning_content is required in multi-turn tool call conversations"),
+				{ status: 400 },
+			)
+			mockCreate.mockRejectedValueOnce(rejectionError)
+
+			const tools: OpenAI.Chat.ChatCompletionTool[] = [
+				{
+					type: "function",
+					function: { name: "read_file", description: "Read", parameters: {} },
+				},
+			]
+
+			const messages: Anthropic.Messages.MessageParam[] = [
+				{ role: "user", content: [{ type: "text", text: "Hello" }] },
+			]
+
+			await expect(async () => {
+				const stream = handler.createMessage("System prompt", messages, { taskId: "test-task", tools })
+				for await (const _chunk of stream) {
+					// drain
+				}
+			}).rejects.toThrow()
+
+			expect(mockCreate).toHaveBeenCalledTimes(1)
+		})
+
+		it("should not retry when rejection is a non-Error value (parallel_tool_calls path)", async () => {
+			// A non-Error rejection (e.g. a string) must not trigger the
+			// parallel_tool_calls fallback. isParallelToolCallsRejected
+			// returns false for non-Error values.
+			mockCreate.mockRejectedValueOnce("network failure")
+
+			const messages: Anthropic.Messages.MessageParam[] = [
+				{ role: "user", content: [{ type: "text", text: "Hello" }] },
+			]
+
+			await expect(async () => {
+				const stream = handler.createMessage("System prompt", messages, {
+					taskId: "test-task",
+				parallelToolCalls: false,
+				})
+				for await (const _chunk of stream) {
+					// drain
+				}
+			}).rejects.toThrow()
+
+			expect(mockCreate).toHaveBeenCalledTimes(1)
+		})
+
+		it("should not retry strict-schema fallback for non-400 errors", async () => {
+			// A 500 error must NOT trigger the strict-schema fallback.
+			// isStrictToolSchemaRejected returns false when status !== 400.
+			const rejectionError = Object.assign(
+				new Error("500 - Internal server error"),
+				{ status: 500 },
+			)
+			mockCreate.mockRejectedValueOnce(rejectionError)
+
+			const tools: OpenAI.Chat.ChatCompletionTool[] = [
+				{
+					type: "function",
+					function: { name: "read_file", description: "Read", parameters: {} },
+				},
+			]
+
+			const messages: Anthropic.Messages.MessageParam[] = [
+				{ role: "user", content: [{ type: "text", text: "Hello" }] },
+			]
+
+			await expect(async () => {
+				const stream = handler.createMessage("System prompt", messages, { taskId: "test-task", tools })
+				for await (const _chunk of stream) {
+					// drain
+				}
+			}).rejects.toThrow()
+
+			expect(mockCreate).toHaveBeenCalledTimes(1)
+		})
+
+		it("should not retry strict-schema fallback for non-Error rejections", async () => {
+			// A non-Error rejection (e.g. a string) must not trigger the
+			// strict-schema fallback. isStrictToolSchemaRejected returns
+			// false for non-Error values.
+			mockCreate.mockRejectedValueOnce("bad gateway")
+
+			const tools: OpenAI.Chat.ChatCompletionTool[] = [
+				{
+					type: "function",
+					function: { name: "read_file", description: "Read", parameters: {} },
+				},
+			]
+
+			const messages: Anthropic.Messages.MessageParam[] = [
+				{ role: "user", content: [{ type: "text", text: "Hello" }] },
+			]
+
+			await expect(async () => {
+				const stream = handler.createMessage("System prompt", messages, { taskId: "test-task", tools })
+				for await (const _chunk of stream) {
+					// drain
+				}
+			}).rejects.toThrow()
+
+			expect(mockCreate).toHaveBeenCalledTimes(1)
+		})
+
+		it("should pass non-function tools through unchanged during strict-schema retry", async () => {
+			// When the endpoint rejects strict tool schemas, the retry
+			// strips strict from function tools but passes non-function
+			// tools (e.g. type "code_interpreter") through unchanged.
+			const rejectionError = Object.assign(new Error("400 - Unknown parameter: tools[0].function.strict"), {
+				status: 400,
+			})
+			mockCreate.mockRejectedValueOnce(rejectionError)
+
+			// Second call (retry) succeeds
+			mockCreate.mockImplementationOnce(async () => ({
+				[Symbol.asyncIterator]: async function* () {
+					yield {
+						choices: [{ delta: { content: "Retried" }, index: 0 }],
+						usage: null,
+					}
+					yield {
+						choices: [{ delta: {}, index: 0, finish_reason: "stop" }],
+						usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+					}
+				},
+			}))
+
+			const tools: OpenAI.Chat.ChatCompletionTool[] = [
+				{
+					type: "function",
+					function: {
+						name: "read_file",
+						description: "Read",
+						parameters: { type: "object", properties: {} },
+						strict: true,
+					},
+				},
+				// Non-function tool — should pass through stripStrictFromTools unchanged
+				{
+					type: "code_interpreter" as OpenAI.Chat.ChatCompletionTool["type"],
+					code_interpreter: { name: "code_interpreter" },
+				} as unknown as OpenAI.Chat.ChatCompletionTool,
+			]
+
+			const messages: Anthropic.Messages.MessageParam[] = [
+				{ role: "user", content: [{ type: "text", text: "Hello" }] },
+			]
+
+			const stream = handler.createMessage("System prompt", messages, { taskId: "test-task", tools })
+			for await (const _chunk of stream) {
+				// drain
+			}
+
+			// The retry call should have been made
+			expect(mockCreate).toHaveBeenCalledTimes(2)
+
+			// The retry call's tools should have the function tool with strict removed
+			// and the non-function tool preserved unchanged
+			const retryCallParams = mockCreate.mock.calls[1][0]
+			expect(retryCallParams.tools).toBeDefined()
+			expect(retryCallParams.tools).toHaveLength(2)
+			// Function tool should have strict removed
+			expect(retryCallParams.tools[0].function).not.toHaveProperty("strict")
+			// Non-function tool should be preserved
+			expect(retryCallParams.tools[1].type).toBe("code_interpreter")
 		})
 
 		it("should send stream_options with include_usage", async () => {
@@ -395,7 +806,9 @@ describe("MimoHandler", () => {
 			]
 
 			const stream = handler.createMessage("System prompt", messages)
-			await collectStream(stream)
+			for await (const _chunk of stream) {
+				// drain
+			}
 
 			const params = mockCreate.mock.calls[0][0]
 			expect(params.stream_options).toEqual({ include_usage: true })
@@ -420,8 +833,12 @@ describe("MimoHandler", () => {
 				},
 			]
 
-			const stream = handler.createMessage("System prompt", messages, { tools } as any)
-			await collectStream(stream)
+			const stream = handler.createMessage("System prompt", messages, {
+				tools,
+			} as unknown as ApiHandlerCreateMessageMetadata)
+			for await (const _chunk of stream) {
+				// drain
+			}
 
 			const params = mockCreate.mock.calls[0][0]
 			expect(params.tools).toHaveLength(1)
@@ -433,7 +850,11 @@ describe("MimoHandler", () => {
 				{ role: "user", content: [{ type: "text", text: "Hello" }] },
 			]
 
-			const chunks = await collectStream(handler.createMessage("System prompt", messages))
+			const chunks: ApiStreamChunk[] = []
+			const stream = handler.createMessage("System prompt", messages)
+			for await (const chunk of stream) {
+				chunks.push(chunk)
+			}
 
 			const textChunks = chunks.filter((c) => c.type === "text")
 			expect(textChunks.length).toBeGreaterThan(0)
@@ -445,7 +866,11 @@ describe("MimoHandler", () => {
 				{ role: "user", content: [{ type: "text", text: "Hello" }] },
 			]
 
-			const chunks = await collectStream(handler.createMessage("System prompt", messages))
+			const chunks: ApiStreamChunk[] = []
+			const stream = handler.createMessage("System prompt", messages)
+			for await (const chunk of stream) {
+				chunks.push(chunk)
+			}
 
 			const usageChunks = chunks.filter((c) => c.type === "usage")
 			expect(usageChunks).toHaveLength(1)
@@ -454,50 +879,56 @@ describe("MimoHandler", () => {
 		})
 
 		it("streams reasoning chunks from delta.reasoning_content", async () => {
-			mockCreate.mockImplementationOnce(async () =>
-				asyncStreamFrom([
-					{ choices: [{ delta: { reasoning_content: "thinking..." }, index: 0 }] },
-					{ choices: [{ delta: { content: "answer" }, index: 0 }] },
-					{
+			mockCreate.mockImplementationOnce(async () => ({
+				[Symbol.asyncIterator]: async function* () {
+					yield { choices: [{ delta: { reasoning_content: "thinking..." }, index: 0 }] }
+					yield { choices: [{ delta: { content: "answer" }, index: 0 }] }
+					yield {
 						choices: [{ delta: {}, index: 0 }],
 						usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-					},
-				]),
-			)
+					}
+				},
+			}))
 
 			const messages: Anthropic.Messages.MessageParam[] = [
 				{ role: "user", content: [{ type: "text", text: "Hello" }] },
 			]
 
-			const chunks = await collectStream(handler.createMessage("System prompt", messages))
+			const chunks: ApiStreamChunk[] = []
+			for await (const chunk of handler.createMessage("System prompt", messages)) {
+				chunks.push(chunk)
+			}
 
 			expect(chunks).toContainEqual({ type: "reasoning", text: "thinking..." })
 		})
 
 		it("falls back to delta.reasoning when reasoning_content is absent", async () => {
-			mockCreate.mockImplementationOnce(async () =>
-				asyncStreamFrom([
-					{ choices: [{ delta: { reasoning: "router-style thought" }, index: 0 }] },
-					{
+			mockCreate.mockImplementationOnce(async () => ({
+				[Symbol.asyncIterator]: async function* () {
+					yield { choices: [{ delta: { reasoning: "router-style thought" }, index: 0 }] }
+					yield {
 						choices: [{ delta: {}, index: 0 }],
 						usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-					},
-				]),
-			)
+					}
+				},
+			}))
 
 			const messages: Anthropic.Messages.MessageParam[] = [
 				{ role: "user", content: [{ type: "text", text: "Hello" }] },
 			]
 
-			const chunks = await collectStream(handler.createMessage("System prompt", messages))
+			const chunks: ApiStreamChunk[] = []
+			for await (const chunk of handler.createMessage("System prompt", messages)) {
+				chunks.push(chunk)
+			}
 
 			expect(chunks).toContainEqual({ type: "reasoning", text: "router-style thought" })
 		})
 
 		it("prefers delta.reasoning_content over delta.reasoning when both are present", async () => {
-			mockCreate.mockImplementationOnce(async () =>
-				asyncStreamFrom([
-					{
+			mockCreate.mockImplementationOnce(async () => ({
+				[Symbol.asyncIterator]: async function* () {
+					yield {
 						choices: [
 							{
 								delta: {
@@ -507,28 +938,31 @@ describe("MimoHandler", () => {
 								index: 0,
 							},
 						],
-					},
-					{
+					}
+					yield {
 						choices: [{ delta: {}, index: 0 }],
 						usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-					},
-				]),
-			)
+					}
+				},
+			}))
 
 			const messages: Anthropic.Messages.MessageParam[] = [
 				{ role: "user", content: [{ type: "text", text: "Hello" }] },
 			]
 
-			const chunks = await collectStream(handler.createMessage("System prompt", messages))
+			const chunks: ApiStreamChunk[] = []
+			for await (const chunk of handler.createMessage("System prompt", messages)) {
+				chunks.push(chunk)
+			}
 
 			const reasoningChunks = chunks.filter((chunk) => chunk.type === "reasoning")
 			expect(reasoningChunks).toEqual([{ type: "reasoning", text: "primary thought" }])
 		})
 
 		it("should yield tool_call_partial chunks from stream", async () => {
-			mockCreate.mockImplementationOnce(async () =>
-				asyncStreamFrom([
-					{
+			mockCreate.mockImplementationOnce(async () => ({
+				[Symbol.asyncIterator]: async function* () {
+					yield {
 						choices: [
 							{
 								delta: {
@@ -544,8 +978,8 @@ describe("MimoHandler", () => {
 							},
 						],
 						usage: null,
-					},
-					{
+					}
+					yield {
 						choices: [
 							{
 								delta: {
@@ -560,21 +994,27 @@ describe("MimoHandler", () => {
 							},
 						],
 						usage: null,
-					},
-					{
+					}
+					yield {
 						choices: [{ delta: {}, index: 0, finish_reason: "tool_calls" }],
 						usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-					},
-				]),
-			)
+					}
+				},
+			}))
 
 			const messages: Anthropic.Messages.MessageParam[] = [
 				{ role: "user", content: [{ type: "text", text: "Read test.ts" }] },
 			]
 
-			const chunks = await collectStream(handler.createMessage("System prompt", messages))
+			const chunks: ApiStreamChunk[] = []
+			const stream = handler.createMessage("System prompt", messages)
+			for await (const chunk of stream) {
+				chunks.push(chunk)
+			}
 
-			const toolChunks = chunks.filter((c) => c.type === "tool_call_partial")
+			const toolChunks = chunks.filter(
+				(c): c is Extract<ApiStreamChunk, { type: "tool_call_partial" }> => c.type === "tool_call_partial",
+			)
 			expect(toolChunks).toHaveLength(2)
 			expect(toolChunks[0].id).toBe("call_abc")
 			expect(toolChunks[0].name).toBe("read_file")
@@ -583,13 +1023,13 @@ describe("MimoHandler", () => {
 		})
 
 		it("should yield usage with cache tokens", async () => {
-			mockCreate.mockImplementationOnce(async () =>
-				asyncStreamFrom([
-					{
+			mockCreate.mockImplementationOnce(async () => ({
+				[Symbol.asyncIterator]: async function* () {
+					yield {
 						choices: [{ delta: { content: "Hi" }, index: 0 }],
 						usage: null,
-					},
-					{
+					}
+					yield {
 						choices: [{ delta: {}, index: 0, finish_reason: "stop" }],
 						usage: {
 							prompt_tokens: 100,
@@ -600,17 +1040,23 @@ describe("MimoHandler", () => {
 								cached_tokens: 30,
 							},
 						},
-					},
-				]),
-			)
+					}
+				},
+			}))
 
 			const messages: Anthropic.Messages.MessageParam[] = [
 				{ role: "user", content: [{ type: "text", text: "Hello" }] },
 			]
 
-			const chunks = await collectStream(handler.createMessage("System prompt", messages))
+			const chunks: ApiStreamChunk[] = []
+			const stream = handler.createMessage("System prompt", messages)
+			for await (const chunk of stream) {
+				chunks.push(chunk)
+			}
 
-			const usageChunks = chunks.filter((c) => c.type === "usage")
+			const usageChunks = chunks.filter(
+				(c): c is Extract<ApiStreamChunk, { type: "usage" }> => c.type === "usage",
+			)
 			expect(usageChunks).toHaveLength(1)
 			expect(usageChunks[0].inputTokens).toBe(100)
 			expect(usageChunks[0].outputTokens).toBe(20)
@@ -627,7 +1073,10 @@ describe("MimoHandler", () => {
 			]
 
 			await expect(async () => {
-				await collectStream(handler.createMessage("System prompt", messages))
+				const stream = handler.createMessage("System prompt", messages)
+				for await (const _chunk of stream) {
+					// drain
+				}
 			}).rejects.toThrow()
 		})
 
@@ -662,7 +1111,9 @@ describe("MimoHandler", () => {
 			]
 
 			const stream = handler.createMessage("System prompt", messages)
-			await collectStream(stream)
+			for await (const _chunk of stream) {
+				// drain
+			}
 
 			const params = mockCreate.mock.calls[0][0]
 			expect(params.messages).toHaveLength(4) // system + user + assistant + tool
@@ -682,38 +1133,44 @@ describe("MimoHandler", () => {
 			]
 
 			const stream = handler.createMessage("System prompt", messages)
-			await collectStream(stream)
+			for await (const _chunk of stream) {
+				// drain
+			}
 
 			const params = mockCreate.mock.calls[0][0]
 			expect(params.tools).toBeUndefined()
 		})
 
 		it("should handle empty delta chunks without errors", async () => {
-			mockCreate.mockImplementationOnce(async () =>
-				asyncStreamFrom([
-					{ choices: [{}], usage: null },
-					{ choices: [{ delta: {} }], usage: null },
-					{
+			mockCreate.mockImplementationOnce(async () => ({
+				[Symbol.asyncIterator]: async function* () {
+					yield { choices: [{}], usage: null }
+					yield { choices: [{ delta: {} }], usage: null }
+					yield {
 						choices: [{ delta: {}, index: 0, finish_reason: "stop" }],
 						usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-					},
-				]),
-			)
+					}
+				},
+			}))
 
 			const messages: Anthropic.Messages.MessageParam[] = [
 				{ role: "user", content: [{ type: "text", text: "Hello" }] },
 			]
 
-			const chunks = await collectStream(handler.createMessage("System prompt", messages))
+			const chunks: ApiStreamChunk[] = []
+			const stream = handler.createMessage("System prompt", messages)
+			for await (const chunk of stream) {
+				chunks.push(chunk)
+			}
 
 			const textChunks = chunks.filter((c) => c.type === "text")
 			expect(textChunks).toHaveLength(0)
 		})
 
-		it("should handle multiple tool calls in single response", async () => {
-			mockCreate.mockImplementationOnce(async () =>
-				asyncStreamFrom([
-					{
+		it("should suppress parallel tool calls, keeping only the first", async () => {
+			mockCreate.mockImplementationOnce(async () => ({
+				[Symbol.asyncIterator]: async function* () {
+					yield {
 						choices: [
 							{
 								delta: {
@@ -734,8 +1191,8 @@ describe("MimoHandler", () => {
 							},
 						],
 						usage: null,
-					},
-					{
+					}
+					yield {
 						choices: [
 							{
 								delta: {
@@ -748,15 +1205,15 @@ describe("MimoHandler", () => {
 							},
 						],
 						usage: null,
-					},
-					{
+					}
+					yield {
 						choices: [{ delta: {}, index: 0, finish_reason: "stop" }],
 						usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
-					},
-				]),
-			)
+					}
+				},
+			}))
 
-			const tools: any[] = [
+			const tools: OpenAI.Chat.ChatCompletionTool[] = [
 				{
 					type: "function",
 					function: { name: "read_file", description: "Read", parameters: {} },
@@ -771,32 +1228,596 @@ describe("MimoHandler", () => {
 				{ role: "user", content: [{ type: "text", text: "Hello" }] },
 			]
 
-			const chunks = await collectStream(handler.createMessage("System", messages, { taskId: "test", tools }))
+			const chunks: ApiStreamChunk[] = []
+			const stream = handler.createMessage("System", messages, { taskId: "test", tools })
+			for await (const chunk of stream) {
+				chunks.push(chunk)
+			}
 
-			const toolChunks = chunks.filter((c) => c.type === "tool_call_partial")
+			const toolChunks = chunks.filter(
+				(c): c is Extract<ApiStreamChunk, { type: "tool_call_partial" }> => c.type === "tool_call_partial",
+			)
 			const readChunks = toolChunks.filter((c) => c.name === "read_file")
 			const listChunks = toolChunks.filter((c) => c.name === "list_files")
 			expect(readChunks.length).toBeGreaterThan(0)
-			expect(listChunks.length).toBeGreaterThan(0)
+			expect(listChunks.length).toBe(0)
+		})
+
+		describe("parallel tool call suppression", () => {
+			it("drops the second parallel tool call and keeps the first", async () => {
+				mockCreate.mockImplementationOnce(async () => ({
+					[Symbol.asyncIterator]: async function* () {
+						yield {
+							choices: [
+								{
+									delta: {
+										tool_calls: [
+											{
+												index: 0,
+												id: "call_1",
+												function: { name: "read_file", arguments: '{"path":' },
+											},
+											{
+												index: 1,
+												id: "call_2",
+												function: { name: "list_files", arguments: '{"path":' },
+											},
+										],
+									},
+									index: 0,
+								},
+							],
+							usage: null,
+						}
+						yield {
+							choices: [
+								{
+									delta: {
+										tool_calls: [
+											{ index: 0, function: { arguments: '"a.txt"}' } },
+											{ index: 1, function: { arguments: '"./"}' } },
+										],
+									},
+									index: 0,
+								},
+							],
+							usage: null,
+						}
+						yield {
+							choices: [{ delta: {}, index: 0, finish_reason: "tool_calls" }],
+							usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+						}
+					},
+				}))
+
+				const messages: Anthropic.Messages.MessageParam[] = [
+					{ role: "user", content: [{ type: "text", text: "Hello" }] },
+				]
+
+				const chunks: ApiStreamChunk[] = []
+				const stream = handler.createMessage("System", messages)
+				for await (const chunk of stream) {
+					chunks.push(chunk)
+				}
+
+				const toolChunks = chunks.filter(
+					(c): c is Extract<ApiStreamChunk, { type: "tool_call_partial" }> => c.type === "tool_call_partial",
+				)
+				const listChunks = toolChunks.filter((c) => c.name === "list_files")
+				expect(toolChunks.length).toBe(2)
+				expect(listChunks.length).toBe(0)
+				expect(toolChunks[0].id).toBe("call_1")
+				expect(toolChunks[0].name).toBe("read_file")
+			})
+
+			it("drops parallel calls arriving in later chunks", async () => {
+				mockCreate.mockImplementationOnce(async () => ({
+					[Symbol.asyncIterator]: async function* () {
+						yield {
+							choices: [
+								{
+									delta: {
+										tool_calls: [
+											{
+												index: 0,
+												id: "call_a",
+												function: { name: "read_file", arguments: '{"path":' },
+											},
+										],
+									},
+									index: 0,
+								},
+							],
+							usage: null,
+						}
+						yield {
+							choices: [
+								{
+									delta: {
+										tool_calls: [
+											{
+												index: 1,
+												id: "call_b",
+												function: { name: "list_files", arguments: '{"path":' },
+											},
+										],
+									},
+									index: 0,
+								},
+							],
+							usage: null,
+						}
+						yield {
+							choices: [
+								{
+									delta: {
+										tool_calls: [{ index: 0, function: { arguments: '"a.txt"}' } }],
+									},
+									index: 0,
+								},
+							],
+							usage: null,
+						}
+						yield {
+							choices: [{ delta: {}, index: 0, finish_reason: "tool_calls" }],
+							usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+						}
+					},
+				}))
+
+				const messages: Anthropic.Messages.MessageParam[] = [
+					{ role: "user", content: [{ type: "text", text: "Hello" }] },
+				]
+
+				const chunks: ApiStreamChunk[] = []
+				const stream = handler.createMessage("System", messages)
+				for await (const chunk of stream) {
+					chunks.push(chunk)
+				}
+
+				const toolChunks = chunks.filter(
+					(c): c is Extract<ApiStreamChunk, { type: "tool_call_partial" }> => c.type === "tool_call_partial",
+				)
+				const listChunks = toolChunks.filter((c) => c.name === "list_files")
+				expect(toolChunks.length).toBe(2)
+				expect(listChunks.length).toBe(0)
+				expect(toolChunks[0].name).toBe("read_file")
+			})
+
+			it("passes a single tool call through unchanged", async () => {
+				mockCreate.mockImplementationOnce(async () => ({
+					[Symbol.asyncIterator]: async function* () {
+						yield {
+							choices: [
+								{
+									delta: {
+										tool_calls: [
+											{
+												index: 0,
+												id: "call_abc",
+												function: { name: "read_file", arguments: '{"path' },
+											},
+										],
+									},
+									index: 0,
+								},
+							],
+							usage: null,
+						}
+						yield {
+							choices: [
+								{
+									delta: {
+										tool_calls: [{ index: 0, function: { arguments: '":"test.ts"}' } }],
+									},
+									index: 0,
+								},
+							],
+							usage: null,
+						}
+						yield {
+							choices: [{ delta: {}, index: 0, finish_reason: "tool_calls" }],
+							usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+						}
+					},
+				}))
+
+				const messages: Anthropic.Messages.MessageParam[] = [
+					{ role: "user", content: [{ type: "text", text: "Read test.ts" }] },
+				]
+
+				const chunks: ApiStreamChunk[] = []
+				const stream = handler.createMessage("System prompt", messages)
+				for await (const chunk of stream) {
+					chunks.push(chunk)
+				}
+
+				const toolChunks = chunks.filter(
+					(c): c is Extract<ApiStreamChunk, { type: "tool_call_partial" }> => c.type === "tool_call_partial",
+				)
+				expect(toolChunks).toHaveLength(2)
+				expect(toolChunks[0].id).toBe("call_abc")
+				expect(toolChunks[0].name).toBe("read_file")
+				expect(toolChunks[0].arguments).toBe('{"path')
+				expect(toolChunks[1].arguments).toBe('":"test.ts"}')
+			})
+
+			it("emits exactly one tool_call_end for the surviving call", async () => {
+				mockCreate.mockImplementationOnce(async () => ({
+					[Symbol.asyncIterator]: async function* () {
+						yield {
+							choices: [
+								{
+									delta: {
+										tool_calls: [
+											{
+												index: 0,
+												id: "call_x",
+												function: { name: "read_file", arguments: "{}" },
+											},
+											{
+												index: 1,
+												id: "call_y",
+												function: { name: "list_files", arguments: "{}" },
+											},
+										],
+									},
+									index: 0,
+								},
+							],
+							usage: null,
+						}
+						yield {
+							choices: [{ delta: {}, index: 0, finish_reason: "tool_calls" }],
+							usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+						}
+					},
+				}))
+
+				const messages: Anthropic.Messages.MessageParam[] = [
+					{ role: "user", content: [{ type: "text", text: "Hello" }] },
+				]
+
+				const chunks: ApiStreamChunk[] = []
+				const stream = handler.createMessage("System", messages)
+				for await (const chunk of stream) {
+					chunks.push(chunk)
+				}
+
+				const endChunks = chunks.filter(
+					(c): c is Extract<ApiStreamChunk, { type: "tool_call_end" }> => c.type === "tool_call_end",
+				)
+				expect(endChunks).toHaveLength(1)
+				expect(endChunks[0].id).toBe("call_x")
+			})
+
+			it("drops a disguised parallel call (second id at index 0)", async () => {
+				mockCreate.mockImplementationOnce(async () => ({
+					[Symbol.asyncIterator]: async function* () {
+						yield {
+							choices: [
+								{
+									delta: {
+										tool_calls: [
+											{
+												index: 0,
+												id: "call_a",
+												function: { name: "read_file", arguments: "{}" },
+											},
+										],
+									},
+									index: 0,
+								},
+							],
+							usage: null,
+						}
+						yield {
+							choices: [
+								{
+									delta: {
+										tool_calls: [
+											{
+												index: 0,
+												id: "call_b",
+												function: { name: "list_files", arguments: "{}" },
+											},
+										],
+									},
+									index: 0,
+								},
+							],
+							usage: null,
+						}
+						yield {
+							choices: [{ delta: {}, index: 0, finish_reason: "tool_calls" }],
+							usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+						}
+					},
+				}))
+
+				const messages: Anthropic.Messages.MessageParam[] = [
+					{ role: "user", content: [{ type: "text", text: "Hello" }] },
+				]
+
+				const chunks: ApiStreamChunk[] = []
+				const stream = handler.createMessage("System", messages)
+				for await (const chunk of stream) {
+					chunks.push(chunk)
+				}
+
+				const toolChunks = chunks.filter(
+					(c): c is Extract<ApiStreamChunk, { type: "tool_call_partial" }> => c.type === "tool_call_partial",
+				)
+				const readChunks = toolChunks.filter((c) => c.name === "read_file")
+				const listChunks = toolChunks.filter((c) => c.name === "list_files")
+				expect(readChunks.length).toBe(1)
+				expect(listChunks.length).toBe(0)
+
+				const endChunks = chunks.filter(
+					(c): c is Extract<ApiStreamChunk, { type: "tool_call_end" }> => c.type === "tool_call_end",
+				)
+				expect(endChunks).toHaveLength(1)
+				expect(endChunks[0].id).toBe("call_a")
+			})
+
+			it("keeps all argument-continuation fragments of a compliant single call", async () => {
+				mockCreate.mockImplementationOnce(async () => ({
+					[Symbol.asyncIterator]: async function* () {
+						yield {
+							choices: [
+								{
+									delta: {
+										tool_calls: [
+											{
+												index: 0,
+												id: "call_a",
+												function: { name: "read_file", arguments: '{"path' },
+											},
+										],
+									},
+									index: 0,
+								},
+							],
+							usage: null,
+						}
+						yield {
+							choices: [
+								{
+									delta: {
+										tool_calls: [{ index: 0, function: { arguments: '":"a' } }],
+									},
+									index: 0,
+								},
+							],
+							usage: null,
+						}
+						yield {
+							choices: [
+								{
+									delta: {
+										tool_calls: [{ index: 0, function: { arguments: '.txt"}' } }],
+									},
+									index: 0,
+								},
+							],
+							usage: null,
+						}
+						yield {
+							choices: [{ delta: {}, index: 0, finish_reason: "tool_calls" }],
+							usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+						}
+					},
+				}))
+
+				const messages: Anthropic.Messages.MessageParam[] = [
+					{ role: "user", content: [{ type: "text", text: "Hello" }] },
+				]
+
+				const chunks: ApiStreamChunk[] = []
+				const stream = handler.createMessage("System", messages)
+				for await (const chunk of stream) {
+					chunks.push(chunk)
+				}
+
+				const toolChunks = chunks.filter(
+					(c): c is Extract<ApiStreamChunk, { type: "tool_call_partial" }> => c.type === "tool_call_partial",
+				)
+				expect(toolChunks).toHaveLength(3)
+				const accumulated = toolChunks.map((c) => c.arguments ?? "").join("")
+				expect(accumulated).toBe('{"path":"a.txt"}')
+			})
+
+			it("keeps fragments after the provider re-sends the kept call's id", async () => {
+				mockCreate.mockImplementationOnce(async () => ({
+					[Symbol.asyncIterator]: async function* () {
+						yield {
+							choices: [
+								{
+									delta: {
+										tool_calls: [
+											{
+												index: 0,
+												id: "call_a",
+												function: { name: "read_file", arguments: '{"path' },
+											},
+										],
+									},
+									index: 0,
+								},
+							],
+							usage: null,
+						}
+						// Provider re-sends the same id at index 0 (compliant duplicate).
+						yield {
+							choices: [
+								{
+									delta: {
+										tool_calls: [{ index: 0, id: "call_a", function: { arguments: '":"a.txt"}' } }],
+									},
+									index: 0,
+								},
+							],
+							usage: null,
+						}
+						yield {
+							choices: [
+								{
+									delta: {
+										tool_calls: [{ index: 0, function: { arguments: "" } }],
+									},
+									index: 0,
+								},
+							],
+							usage: null,
+						}
+						yield {
+							choices: [{ delta: {}, index: 0, finish_reason: "tool_calls" }],
+							usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+						}
+					},
+				}))
+
+				const messages: Anthropic.Messages.MessageParam[] = [
+					{ role: "user", content: [{ type: "text", text: "Hello" }] },
+				]
+
+				const chunks: ApiStreamChunk[] = []
+				const stream = handler.createMessage("System", messages)
+				for await (const chunk of stream) {
+					chunks.push(chunk)
+				}
+
+				const toolChunks = chunks.filter(
+					(c): c is Extract<ApiStreamChunk, { type: "tool_call_partial" }> => c.type === "tool_call_partial",
+				)
+				const accumulated = toolChunks.map((c) => c.arguments ?? "").join("")
+				expect(accumulated).toBe('{"path":"a.txt"}')
+				// Every emitted chunk belongs to the kept call.
+				expect(toolChunks.every((c) => c.id === undefined || c.id === "call_a")).toBe(true)
+			})
+
+			it("drops a disguised parallel call's argument fragments so they don't pollute the first call", async () => {
+				mockCreate.mockImplementationOnce(async () => ({
+					[Symbol.asyncIterator]: async function* () {
+						yield {
+							choices: [
+								{
+									delta: {
+										tool_calls: [
+											{
+												index: 0,
+												id: "call_a",
+												function: { name: "read_file", arguments: '{"path' },
+											},
+										],
+									},
+									index: 0,
+								},
+							],
+							usage: null,
+						}
+						// Compliant continuation of the first call.
+						yield {
+							choices: [
+								{
+									delta: {
+										tool_calls: [{ index: 0, function: { arguments: '":"a.txt"}' } }],
+									},
+									index: 0,
+								},
+							],
+							usage: null,
+						}
+						// Disguised second call: index 0 reused with a NEW id.
+						yield {
+							choices: [
+								{
+									delta: {
+										tool_calls: [
+											{
+												index: 0,
+												id: "call_b",
+												function: { name: "list_files", arguments: '{"path"' },
+											},
+										],
+									},
+									index: 0,
+								},
+							],
+							usage: null,
+						}
+						// Id-less fragments of the disguised call — these previously
+						// concatenated into the FIRST call's accumulator, corrupting
+						// its JSON.
+						yield {
+							choices: [
+								{
+									delta: {
+										tool_calls: [{ index: 0, function: { arguments: '":"./"}' } }],
+									},
+									index: 0,
+								},
+							],
+							usage: null,
+						}
+						yield {
+							choices: [{ delta: {}, index: 0, finish_reason: "tool_calls" }],
+							usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+						}
+					},
+				}))
+
+				const messages: Anthropic.Messages.MessageParam[] = [
+					{ role: "user", content: [{ type: "text", text: "Hello" }] },
+				]
+
+				const chunks: ApiStreamChunk[] = []
+				const stream = handler.createMessage("System", messages)
+				for await (const chunk of stream) {
+					chunks.push(chunk)
+				}
+
+				const toolChunks = chunks.filter(
+					(c): c is Extract<ApiStreamChunk, { type: "tool_call_partial" }> => c.type === "tool_call_partial",
+				)
+				// Only the first call's id chunk + compliant continuation survive.
+				expect(toolChunks).toHaveLength(2)
+				const accumulated = toolChunks.map((c) => c.arguments ?? "").join("")
+				// The disguised call's fragments must NOT pollute the first call —
+				// the accumulated arguments stay valid JSON.
+				expect(accumulated).toBe('{"path":"a.txt"}')
+				expect(() => JSON.parse(accumulated)).not.toThrow()
+
+				const endChunks = chunks.filter(
+					(c): c is Extract<ApiStreamChunk, { type: "tool_call_end" }> => c.type === "tool_call_end",
+				)
+				expect(endChunks).toHaveLength(1)
+				expect(endChunks[0].id).toBe("call_a")
+			})
 		})
 
 		it("should handle stream interruption gracefully", async () => {
-			mockCreate.mockImplementationOnce(async () =>
-				asyncStreamFrom([
-					{
+			mockCreate.mockImplementationOnce(async () => ({
+				[Symbol.asyncIterator]: async function* () {
+					yield {
 						choices: [{ delta: { content: "Partial " }, index: 0 }],
 						usage: null,
-					},
-				]),
-			)
+					}
+					// Stream ends without finish_reason (connection dropped)
+				},
+			}))
 
 			const messages: Anthropic.Messages.MessageParam[] = [
 				{ role: "user", content: [{ type: "text", text: "Hello" }] },
 			]
 
-			const chunks = await collectStream(handler.createMessage("System", messages))
+			const chunks: ApiStreamChunk[] = []
+			const stream = handler.createMessage("System", messages)
+			for await (const chunk of stream) {
+				chunks.push(chunk)
+			}
 
-			const textChunks = chunks.filter((c) => c.type === "text")
+			const textChunks = chunks.filter((c): c is Extract<ApiStreamChunk, { type: "text" }> => c.type === "text")
 			expect(textChunks).toHaveLength(1)
 			expect(textChunks[0].text).toBe("Partial ")
 
@@ -805,9 +1826,9 @@ describe("MimoHandler", () => {
 		})
 
 		it("should sanitize tool call IDs with invalid characters", async () => {
-			mockCreate.mockImplementationOnce(async () =>
-				asyncStreamFrom([
-					{
+			mockCreate.mockImplementationOnce(async () => ({
+				[Symbol.asyncIterator]: async function* () {
+					yield {
 						choices: [
 							{
 								delta: {
@@ -823,15 +1844,15 @@ describe("MimoHandler", () => {
 							},
 						],
 						usage: null,
-					},
-					{
+					}
+					yield {
 						choices: [{ delta: {}, index: 0, finish_reason: "stop" }],
 						usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-					},
-				]),
-			)
+					}
+				},
+			}))
 
-			const tools: any[] = [
+			const tools: OpenAI.Chat.ChatCompletionTool[] = [
 				{
 					type: "function",
 					function: { name: "test_tool", description: "Test", parameters: {} },
@@ -842,9 +1863,15 @@ describe("MimoHandler", () => {
 				{ role: "user", content: [{ type: "text", text: "Hello" }] },
 			]
 
-			const chunks = await collectStream(handler.createMessage("System", messages, { taskId: "test", tools }))
+			const chunks: ApiStreamChunk[] = []
+			const stream = handler.createMessage("System", messages, { taskId: "test", tools })
+			for await (const chunk of stream) {
+				chunks.push(chunk)
+			}
 
-			const toolChunks = chunks.filter((c) => c.type === "tool_call_partial")
+			const toolChunks = chunks.filter(
+				(c): c is Extract<ApiStreamChunk, { type: "tool_call_partial" }> => c.type === "tool_call_partial",
+			)
 			expect(toolChunks.length).toBeGreaterThan(0)
 			expect(toolChunks[0].id).toBe(sanitizeOpenAiCallId("call_with-special.chars@123"))
 			expect(toolChunks[0].id).not.toMatch(/[^a-zA-Z0-9_-]/)
@@ -856,7 +1883,9 @@ describe("MimoHandler", () => {
 			]
 
 			const stream = handler.createMessage("You are a helpful assistant", userMessages)
-			await collectStream(stream)
+			for await (const _chunk of stream) {
+				// drain
+			}
 
 			const params = mockCreate.mock.calls[0][0]
 			expect(params.messages[0].role).toBe("system")

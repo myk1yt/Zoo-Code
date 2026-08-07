@@ -116,7 +116,7 @@ export function getTerminalProviderForExecution(
 interface ExecuteCommandParams {
 	command: string
 	cwd?: string
-	timeout?: number | null
+	timeout?: number
 }
 
 export function resolveAgentTimeoutMs(timeoutSeconds: number | null | undefined): number {

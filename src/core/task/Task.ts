@@ -60,7 +60,7 @@ import { TelemetryService } from "@roo-code/telemetry"
 import { CloudService } from "@roo-code/cloud"
 
 // api
-import { ApiHandler, ApiHandlerCreateMessageMetadata, buildApiHandler } from "../../api"
+import { ApiHandler, ApiHandlerCreateMessageMetadata, buildApiHandler, resolveToolCallPolicy } from "../../api"
 import { ApiStream, GroundingSource } from "../../api/transform/stream"
 import { maybeRemoveImageBlocks } from "../../api/transform/image-cleaning"
 
@@ -109,6 +109,11 @@ import { RooIgnoreController } from "../ignore/RooIgnoreController"
 import { RooProtectedController } from "../protect/RooProtectedController"
 import { type AssistantMessageContent, presentAssistantMessage } from "../assistant-message"
 import { NativeToolCallParser } from "../assistant-message/NativeToolCallParser"
+import {
+	classifyStreamedCall,
+	isProvablyEmptyGhost,
+	emitGhostDropTelemetry,
+} from "../assistant-message/ToolCallRetentionPolicy"
 import { manageContext, willManageContext } from "../context-management"
 import { ClineProvider } from "../webview/ClineProvider"
 import { MultiSearchReplaceDiffStrategy } from "../diff/strategies/multi-search-replace"
@@ -1618,6 +1623,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		}
 
 		// Build metadata with tools and taskId for the condensing API call
+		const toolCallPolicy = resolveToolCallPolicy(this.api.getModel().info, this.apiConfiguration.apiProvider)
 		const metadata: ApiHandlerCreateMessageMetadata = {
 			mode,
 			taskId: this.taskId,
@@ -1630,7 +1636,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				? {
 						tools: allTools,
 						tool_choice: "auto",
-						parallelToolCalls: true,
+						parallelToolCalls: toolCallPolicy.generation === "parallel",
 					}
 				: {}),
 		}
@@ -2760,6 +2766,9 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				// Clear any leftover streaming tool call state from previous interrupted streams
 				NativeToolCallParser.clearAllStreamingToolCalls()
 				NativeToolCallParser.clearRawChunkState()
+				// Clear recorded parse failures from previous streams so they
+				// don't accumulate for the extension-host lifetime.
+				NativeToolCallParser.clearParseFailures()
 
 				await this.diffViewProvider.reset()
 
@@ -2929,6 +2938,79 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 											}
 										}
 									} else if (event.type === "tool_call_end") {
+										// Ghost quarantine: inspect streaming state BEFORE
+										// finalizeStreamingToolCall() (which deletes it).
+										// A "ghost" is a call with no resolved tool name and no
+										// non-whitespace argument bytes at stream completion.
+										// Such calls are transport artifacts, not model intent,
+										// and must be silently dropped BEFORE insertion into
+										// assistantMessageContent or conversation history.
+										//
+										// A named call (even with `{}` args) is NOT a ghost —
+										// it is a malformed named call that must receive a
+										// tool_result. A call with any argument bytes is NOT a
+										// ghost — it carries partial model intent.
+										const preFinalizeState = NativeToolCallParser.getStreamingToolCallState(
+											event.id,
+										)
+										const ghostDisposition = preFinalizeState
+											? classifyStreamedCall({
+													callId: event.id,
+													toolName: preFinalizeState.name,
+													argumentsAccumulator: preFinalizeState.argumentsAccumulator,
+													streamEnded: true,
+												})
+											: undefined
+
+										if (ghostDisposition && isProvablyEmptyGhost(ghostDisposition)) {
+											// Silently drop the ghost: remove its partial block
+											// from assistantMessageContent and discard streaming
+											// state. It will NOT receive a tool_result.
+											const ghostIndex = this.streamingToolCallIndices.get(event.id)
+											if (ghostIndex !== undefined) {
+												// Remove the partial tool_use block that was pushed
+												// at tool_call_start. This is safe because the call
+												// never resolved a name or arguments — it carries
+												// no model intent and has not been presented to the
+												// user as a tool call.
+												this.assistantMessageContent.splice(ghostIndex, 1)
+												// Re-index remaining streaming tool call indices
+												// since we removed an element from the array.
+												for (const [cid, idx] of this.streamingToolCallIndices.entries()) {
+													if (idx > ghostIndex) {
+														this.streamingToolCallIndices.set(cid, idx - 1)
+													}
+												}
+												this.streamingToolCallIndices.delete(event.id)
+											}
+											// Discard streaming state (finalizeStreamingToolCall
+											// would also delete it, but we bypass that path).
+											NativeToolCallParser.discardStreamingToolCall(event.id)
+											// Emit telemetry for the ghost drop. Only counts and
+											// metadata are sent — no call ID, tool name, or args.
+											const ghostPolicy1 = resolveToolCallPolicy(
+												this.api.getModel().info,
+												this.apiConfiguration.apiProvider,
+											)
+											emitGhostDropTelemetry({
+												taskId: this.taskId,
+												provider: this.apiConfiguration.apiProvider ?? "unknown",
+												model: this.api.getModel().id,
+												policySource: ghostPolicy1.source,
+												maxCallsPerTurn: ghostPolicy1.maxCallsPerTurn,
+												enforcement: ghostPolicy1.enforcement,
+												callCount: this.assistantMessageContent.filter(
+													(b: AssistantMessageContent): b is ToolUse => b.type === "tool_use",
+												).length,
+												ghostDroppedCount: 1,
+												errorResultCount: 0,
+												parallelToolCallsRequested: ghostPolicy1.generation === "parallel",
+											})
+											// Do NOT call presentAssistantMessageSafe — there is
+											// nothing to present for a ghost.
+											continue
+										}
+
 										// Finalize the streaming tool call
 										const finalToolUse = NativeToolCallParser.finalizeStreamingToolCall(event.id)
 
@@ -2981,6 +3063,43 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 							case "tool_call": {
 								// Legacy: Handle complete tool calls (for backward compatibility)
+								// Ghost quarantine: classify before any history insertion.
+								// A ghost has no name and no argument bytes — it is a transport
+								// artifact and must be silently dropped before becoming a
+								// tool_use block in assistantMessageContent.
+								const legacyDisposition = classifyStreamedCall({
+									callId: chunk.id ?? "",
+									toolName: chunk.name,
+									argumentsAccumulator: chunk.arguments ?? "",
+									streamEnded: true,
+								})
+
+								if (isProvablyEmptyGhost(legacyDisposition)) {
+									// Silently drop the ghost. Do not push to
+									// assistantMessageContent, do not present.
+									// Emit telemetry for the ghost drop. Only counts
+									// and metadata — no call ID, tool name, or args.
+									const ghostPolicy2 = resolveToolCallPolicy(
+										this.api.getModel().info,
+										this.apiConfiguration.apiProvider,
+									)
+									emitGhostDropTelemetry({
+										taskId: this.taskId,
+										provider: this.apiConfiguration.apiProvider ?? "unknown",
+										model: this.api.getModel().id,
+										policySource: ghostPolicy2.source,
+										maxCallsPerTurn: ghostPolicy2.maxCallsPerTurn,
+										enforcement: ghostPolicy2.enforcement,
+										callCount: this.assistantMessageContent.filter(
+											(b: AssistantMessageContent): b is ToolUse => b.type === "tool_use",
+										).length,
+										ghostDroppedCount: 1,
+										errorResultCount: 0,
+										parallelToolCallsRequested: ghostPolicy2.generation === "parallel",
+									})
+									break
+								}
+
 								// Convert native tool call to ToolUse format
 								const toolUse = NativeToolCallParser.parseToolCall({
 									id: chunk.id,
@@ -3331,6 +3450,57 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				const finalizeEvents = NativeToolCallParser.finalizeRawChunks()
 				for (const event of finalizeEvents) {
 					if (event.type === "tool_call_end") {
+						// Ghost quarantine (same logic as the streaming tool_call_end
+						// handler above): inspect streaming state BEFORE
+						// finalizeStreamingToolCall() deletes it.
+						const preFinalizeState = NativeToolCallParser.getStreamingToolCallState(event.id)
+						const ghostDisposition = preFinalizeState
+							? classifyStreamedCall({
+									callId: event.id,
+									toolName: preFinalizeState.name,
+									argumentsAccumulator: preFinalizeState.argumentsAccumulator,
+									streamEnded: true,
+								})
+							: undefined
+
+						if (ghostDisposition && isProvablyEmptyGhost(ghostDisposition)) {
+							// Silently drop the ghost: remove its partial block
+							// from assistantMessageContent and discard streaming
+							// state. It will NOT receive a tool_result.
+							const ghostIndex = this.streamingToolCallIndices.get(event.id)
+							if (ghostIndex !== undefined) {
+								this.assistantMessageContent.splice(ghostIndex, 1)
+								for (const [cid, idx] of this.streamingToolCallIndices.entries()) {
+									if (idx > ghostIndex) {
+										this.streamingToolCallIndices.set(cid, idx - 1)
+									}
+								}
+								this.streamingToolCallIndices.delete(event.id)
+							}
+							NativeToolCallParser.discardStreamingToolCall(event.id)
+							// Emit telemetry for the ghost drop. Only counts and
+							// metadata are sent — no call ID, tool name, or args.
+							const ghostPolicy3 = resolveToolCallPolicy(
+								this.api.getModel().info,
+								this.apiConfiguration.apiProvider,
+							)
+							emitGhostDropTelemetry({
+								taskId: this.taskId,
+								provider: this.apiConfiguration.apiProvider ?? "unknown",
+								model: this.api.getModel().id,
+								policySource: ghostPolicy3.source,
+								maxCallsPerTurn: ghostPolicy3.maxCallsPerTurn,
+								enforcement: ghostPolicy3.enforcement,
+								callCount: this.assistantMessageContent.filter(
+									(b: AssistantMessageContent): b is ToolUse => b.type === "tool_use",
+								).length,
+								ghostDroppedCount: 1,
+								errorResultCount: 0,
+								parallelToolCallsRequested: ghostPolicy3.generation === "parallel",
+							})
+							continue
+						}
+
 						// Finalize the streaming tool call
 						const finalToolUse = NativeToolCallParser.finalizeStreamingToolCall(event.id)
 
@@ -3975,6 +4145,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		}
 
 		// Build metadata with tools and taskId for the condensing API call
+		const toolCallPolicy = resolveToolCallPolicy(this.api.getModel().info, this.apiConfiguration.apiProvider)
 		const metadata: ApiHandlerCreateMessageMetadata = {
 			mode,
 			taskId: this.taskId,
@@ -3987,7 +4158,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				? {
 						tools: allTools,
 						tool_choice: "auto",
-						parallelToolCalls: true,
+						parallelToolCalls: toolCallPolicy.generation === "parallel",
 					}
 				: {}),
 		}
@@ -4214,7 +4385,9 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					? {
 							tools: contextMgmtTools,
 							tool_choice: "auto",
-							parallelToolCalls: true,
+							parallelToolCalls:
+								resolveToolCallPolicy(this.api.getModel().info, this.apiConfiguration.apiProvider)
+									.generation === "parallel",
 						}
 					: {}),
 			}
@@ -4378,6 +4551,8 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		this.currentRequestAbortController = new AbortController()
 		const abortSignal = this.currentRequestAbortController.signal
 
+		const toolCallPolicy = resolveToolCallPolicy(this.api.getModel().info, this.apiConfiguration.apiProvider)
+		const parallelToolCallsRequested = toolCallPolicy.generation === "parallel"
 		const metadata: ApiHandlerCreateMessageMetadata = {
 			mode: mode,
 			taskId: this.taskId,
@@ -4388,13 +4563,24 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				? {
 						tools: allTools,
 						tool_choice: "auto",
-						parallelToolCalls: true,
+						parallelToolCalls: parallelToolCallsRequested,
 						// When mode restricts tools, provide allowedFunctionNames so providers
 						// like Gemini can see all tools in history but only call allowed ones
 						...(allowedFunctionNames ? { allowedFunctionNames } : {}),
 					}
 				: {}),
 		}
+		// Emit telemetry for the policy resolution. Only metadata is sent —
+		// no raw commands, paths, file contents, tool arguments, or API keys.
+		TelemetryService.instance.captureToolCallPolicyResolution(this.taskId, {
+			provider: this.apiConfiguration.apiProvider ?? "unknown",
+			model: this.api.getModel().id,
+			policySource: toolCallPolicy.source,
+			maxCallsPerTurn: toolCallPolicy.maxCallsPerTurn,
+			enforcement: toolCallPolicy.enforcement,
+			parallelToolCallsRequested,
+			parallelToolCallsSent: shouldIncludeTools ? parallelToolCallsRequested : undefined,
+		})
 		// Reset the flag after using it
 		this.skipPrevResponseIdOnce = false
 
