@@ -3,6 +3,11 @@ import { z } from "zod"
 import type { GlobalSettings, RooCodeSettings, TerminalShellSelection } from "./global-settings.js"
 import type { ProviderSettings, ProviderSettingsEntry } from "./provider-settings.js"
 import type { HistoryItem } from "./history.js"
+import type {
+	TaskOrganizationStateV1,
+	TaskOrganizationMutationRequestV1,
+	TaskOrganizationMutationResultV1,
+} from "./task-organization.js"
 import type { ModeConfig, PromptComponent } from "./mode.js"
 import type { Experiments } from "./experiment.js"
 import type { ClineMessage, QueuedMessage } from "./message.js"
@@ -107,6 +112,8 @@ export interface ExtensionMessage {
 		| "terminalShellOptions"
 		// Custom shell path picker response type
 		| "customShellPathSelected"
+		| "taskOrganizationUpdated"
+		| "taskOrganizationMutationResult"
 	text?: string
 	/** For fileContent: { path, content, error? } */
 	fileContent?: { path: string; content: string | null; error?: string }
@@ -259,6 +266,19 @@ export interface ExtensionMessage {
 	customShellPathSelected?: CustomShellPathSelectedPayload
 	// folderSelected
 	path?: string
+
+	/**
+	 * Full authoritative snapshot of the task organization aggregate.
+	 * Sent on initial state hydration and after every committed mutation
+	 * or cross-instance watcher reload.
+	 */
+	taskOrganization?: TaskOrganizationStateV1
+
+	/**
+	 * Acknowledgement or typed rejection for a `taskOrganizationMutation`
+	 * request. Correlated by `requestId`.
+	 */
+	taskOrganizationMutationResult?: TaskOrganizationMutationResultV1
 }
 
 export interface OpenAiCodexRateLimitsMessage {
@@ -431,6 +451,12 @@ export type ExtensionState = Pick<
 	 * (captured during async getStateToPostToWebview) from overwriting newer messages.
 	 */
 	clineMessagesSeq?: number
+
+	/**
+	 * Local task organization aggregate (manual folders and pins).
+	 * Sent on initial state hydration and replaced on every update.
+	 */
+	taskOrganization?: TaskOrganizationStateV1
 }
 
 /**
@@ -704,6 +730,7 @@ export interface WebviewMessage {
 		| "requestTerminalShellOptions"
 		| "setTerminalShellSelection"
 		| "requestCustomShellPath"
+		| "taskOrganizationMutation"
 	text?: string
 	taskId?: string
 	editedMessageContent?: string
@@ -817,6 +844,13 @@ export interface WebviewMessage {
 	// Terminal shell selection payload for `setTerminalShellSelection`.
 	// The extension host validates this before persisting to global settings.
 	terminalShellSelection?: TerminalShellSelection
+
+	/**
+	 * Task organization mutation request from webview to extension host.
+	 * The host validates, applies the mutation atomically, and returns a
+	 * `taskOrganizationMutationResult` correlated by `requestId`.
+	 */
+	taskOrganizationMutation?: TaskOrganizationMutationRequestV1
 }
 
 export interface RequestOpenAiCodexRateLimitsMessage {

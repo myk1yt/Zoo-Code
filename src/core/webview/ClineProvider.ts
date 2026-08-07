@@ -52,6 +52,8 @@ import {
 	getModelId,
 	isRetiredProvider,
 	providerIdentifiers,
+	type TaskOrganizationStateV1,
+	createEmptyTaskOrganizationState,
 } from "@roo-code/types"
 import { RateLimitClock, createRateLimitClock } from "../task/RateLimitClock"
 import { TaskRegistry } from "../task/TaskRegistry"
@@ -115,6 +117,7 @@ import {
 	saveApiMessages,
 	saveTaskMessages,
 	TaskHistoryStore,
+	TaskOrganizationStore,
 	assertValidTransition,
 } from "../task-persistence"
 import { readTaskMessages } from "../task-persistence/taskMessages"
@@ -199,6 +202,8 @@ export class ClineProvider
 	private recentTasksCache?: string[]
 	public readonly taskHistoryStore: TaskHistoryStore
 	private taskHistoryStoreInitialized = false
+	public readonly taskOrganizationStore: TaskOrganizationStore
+	private taskOrganizationStoreInitialized = false
 	private globalStateWriteThroughTimer: ReturnType<typeof setTimeout> | null = null
 	private static readonly GLOBAL_STATE_WRITE_THROUGH_DEBOUNCE_MS = 5000 // 5 seconds
 	public static readonly PENDING_OPERATION_TIMEOUT_MS = 30000 // 30 seconds
@@ -306,11 +311,49 @@ export class ClineProvider
 		this.taskHistoryStore = new TaskHistoryStore(this.contextProxy.globalStorageUri.fsPath, {
 			onWrite: async () => {
 				this.scheduleGlobalStateWriteThrough()
+				// Reconcile organization state after task history changes (deletion,
+				// new child, etc.). Failures are logged but do not block history writes.
+				try {
+					// The organization store is assigned immediately after the
+					// history store below; a history write landing in that
+					// window must not throw a TypeError dereferencing the
+					// not-yet-assigned field.
+					const organizationStore: TaskOrganizationStore | undefined = this.taskOrganizationStore
+					if (organizationStore) {
+						await organizationStore.reconcile()
+					}
+				} catch (error) {
+					this.log(
+						`[TaskHistoryStore.onWrite] Task organization reconciliation failed: ${
+							error instanceof Error ? error.message : String(error)
+						}`,
+					)
+				}
 			},
 		})
 		this.initializeTaskHistoryStore().catch((error) => {
 			this.log(`Failed to initialize TaskHistoryStore: ${error}`)
 		})
+
+		// Initialize the task organization store. It shares the same global
+		// storage directory as task history and resolves automatic-group
+		// closures against the loaded task history.
+		this.taskOrganizationStore = new TaskOrganizationStore(this.contextProxy.globalStorageUri.fsPath, {
+			taskHistory: this.taskHistoryStore,
+			onChange: async (state) => {
+				if (this.isViewLaunched) {
+					await this.postMessageToWebview({ type: "taskOrganizationUpdated", taskOrganization: state })
+				}
+			},
+		})
+		this.taskOrganizationStore
+			.initialize()
+			.then(() => {
+				this.taskOrganizationStoreInitialized = true
+			})
+			.catch((error) => {
+				this.log(`Failed to initialize TaskOrganizationStore: ${error}`)
+			})
 
 		// Start configuration loading (which might trigger indexing) in the background.
 		// Don't await, allowing activation to continue immediately.
@@ -802,6 +845,7 @@ export class ClineProvider
 		await this.marketplaceManager?.cleanup()
 		this.customModesManager?.dispose()
 		this.taskHistoryStore.dispose()
+		this.taskOrganizationStore.dispose()
 		this.flushGlobalStateWriteThrough()
 		this.log("Disposed all disposables")
 		ClineProvider.activeInstances.delete(this)
@@ -2439,8 +2483,9 @@ export class ClineProvider
 	}
 
 	async getStateToPostToWebview(): Promise<ExtensionState> {
-		// Ensure the store is initialized before reading task history
+		// Ensure the stores are initialized before reading persisted state.
 		await this.taskHistoryStore.initialized
+		await this.taskOrganizationStore.waitForInitialized()
 
 		const {
 			apiConfiguration,
@@ -2742,6 +2787,20 @@ export class ClineProvider
 			platform: process.platform,
 			arch: process.arch,
 			debug: vscode.workspace.getConfiguration(Package.name).get<boolean>("debug", false),
+			taskOrganization: (() => {
+				try {
+					return this.taskOrganizationStoreInitialized
+						? this.taskOrganizationStore.getState()
+						: createEmptyTaskOrganizationState()
+				} catch (error) {
+					this.log(
+						`[getStateToPostToWebview] Failed to read task organization state: ${
+							error instanceof Error ? error.message : String(error)
+						}`,
+					)
+					return createEmptyTaskOrganizationState()
+				}
+			})(),
 		}
 	}
 
@@ -3480,6 +3539,13 @@ export class ClineProvider
 
 	public getCurrentTask(): Task | undefined {
 		return this.taskRegistry.current
+	}
+
+	/**
+	 * Returns the TaskOrganizationStore instance for use by message handlers.
+	 */
+	public getTaskOrganizationStore(): TaskOrganizationStore {
+		return this.taskOrganizationStore
 	}
 
 	private logWebviewHiddenDiagnostics(): void {

@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useEffect, useState } from "react"
+import React, { createContext, useCallback, useEffect, useRef, useState } from "react"
 
 import {
 	type ProviderSettings,
@@ -17,10 +17,14 @@ import {
 	type RuleMetadata,
 	type Command,
 	type McpServer,
+	type WebviewMessage,
+	type TaskOrganizationMutationRequestV1,
+	type TaskOrganizationMutationResultV1,
 	RouterModels,
 	ORGANIZATION_ALLOW_ALL,
 	DEFAULT_CHECKPOINT_TIMEOUT_SECONDS,
 	DEFAULT_DIFF_FUZZY_THRESHOLD,
+	createEmptyTaskOrganizationState,
 } from "@roo-code/types"
 
 import { findLastIndex } from "@roo/array"
@@ -33,9 +37,18 @@ import { experimentDefault } from "@roo/experiments"
 import { vscode } from "@src/utils/vscode"
 import { convertTextMateToHljs } from "@src/utils/textMateToHljs"
 
+/**
+ * Combined extension state and webview-specific UI context exposed to React
+ * consumers. Extends the persisted {@link ExtensionState} with hydrated UI
+ * flags, router models, task organization mutation dispatcher, and setters
+ * that update both local state and the extension host.
+ */
 export interface ExtensionStateContextType extends ExtensionState {
 	historyPreviewCollapsed?: boolean // Add the new state property
 	didHydrateState: boolean
+	mutateTaskOrganization: (
+		mutation: TaskOrganizationMutationRequestV1["mutation"],
+	) => Promise<TaskOrganizationMutationResultV1>
 	showWelcome: boolean
 	theme: any
 	mcpServers: McpServer[]
@@ -152,8 +165,25 @@ export interface ExtensionStateContextType extends ExtensionState {
 	rules: RuleMetadata[]
 }
 
+/**
+ * React context carrying the merged extension state and webview UI state.
+ * Initialized as `undefined` so consumers must be wrapped by
+ * {@link ExtensionStateContextProvider}.
+ */
 export const ExtensionStateContext = createContext<ExtensionStateContextType | undefined>(undefined)
 
+/**
+ * Merge a partial extension state update into the previous state while
+ * guarding against stale async pushes.
+ *
+ * Custom mode prompts and experiments are shallow-merged. `clineMessages`
+ * and `taskOrganization` are protected by sequence/revision checks so a
+ * delayed broadcast cannot overwrite newer local mutations.
+ *
+ * @param prevState - The current extension state.
+ * @param newState - Partial state update received from the extension host.
+ * @returns The merged next state.
+ */
 export const mergeExtensionState = (prevState: ExtensionState, newState: Partial<ExtensionState>) => {
 	const { customModePrompts: prevCustomModePrompts, experiments: prevExperiments, ...prevRest } = prevState
 
@@ -182,6 +212,18 @@ export const mergeExtensionState = (prevState: ExtensionState, newState: Partial
 	) {
 		rest.clineMessages = prevState.clineMessages
 		rest.clineMessagesSeq = prevState.clineMessagesSeq
+	}
+
+	// Protect taskOrganization from stale state pushes, mirroring the
+	// revision guard in the taskOrganizationUpdated handler: a full-state
+	// push assembled before a mutation commit can arrive after the
+	// broadcast and regress the webview to an older revision.
+	if (
+		newState.taskOrganization !== undefined &&
+		prevState.taskOrganization !== undefined &&
+		newState.taskOrganization.revision < prevState.taskOrganization.revision
+	) {
+		rest.taskOrganization = prevState.taskOrganization
 	}
 
 	// Note that we completely replace the previous apiConfiguration and customSupportPrompts objects
@@ -270,20 +312,33 @@ const createInitialExtensionState = (): ExtensionState => ({
 	includeCurrentTime: true,
 	includeCurrentCost: true,
 	lockApiConfigAcrossModes: false,
+	taskOrganization: createEmptyTaskOrganizationState(),
 })
 
 type ExtensionStateProviderInitialState = Partial<ExtensionState> & {
 	routerModels?: RouterModels
 }
 
+/**
+ * Provides the combined extension state to the React tree.
+ *
+ * Subscribes to `vscode.postMessage` events, maintains local UI state
+ * (welcome visibility, theme, file paths, MCP servers, etc.), and dispatches
+ * task organization mutations with request/revision tracking.
+ *
+ * @param props.children - React children to wrap with the context provider.
+ * @param props.initialState - Optional partial state used to seed the
+ *   provider before the extension host pushes the full state.
+ */
 export const ExtensionStateContextProvider: React.FC<{
 	children: React.ReactNode
 	initialState?: ExtensionStateProviderInitialState
 }> = ({ children, initialState }) => {
+	const pendingTaskOrgMutations = useRef<Map<string, (result: TaskOrganizationMutationResultV1) => void>>(new Map())
+	const taskOrgRevisionRef = useRef<number>(0)
 	const [state, setState] = useState<ExtensionState>(() =>
 		mergeExtensionState(createInitialExtensionState(), initialState ?? {}),
 	)
-
 	const [didHydrateState, setDidHydrateState] = useState(false)
 	const [showWelcome, setShowWelcome] = useState(false)
 	const [theme, setTheme] = useState<any>(undefined)
@@ -321,6 +376,13 @@ export const ExtensionStateContextProvider: React.FC<{
 		(value: ProviderSettingsEntry[]) => setState((prevState) => ({ ...prevState, listApiConfigMeta: value })),
 		[],
 	)
+
+	// Keep taskOrgRevisionRef in sync with the latest taskOrganization.revision
+	// so mutateTaskOrganization always reads the freshest value from the ref
+	// rather than from a potentially stale closure.
+	useEffect(() => {
+		taskOrgRevisionRef.current = state.taskOrganization?.revision ?? 0
+	}, [state.taskOrganization?.revision])
 
 	const setApiConfiguration = useCallback((value: ProviderSettings) => {
 		setState((prevState) => ({
@@ -498,6 +560,33 @@ export const ExtensionStateContextProvider: React.FC<{
 					})
 					break
 				}
+				case "taskOrganizationUpdated": {
+					const snapshot = message.taskOrganization
+					if (!snapshot) {
+						break
+					}
+					setState((prevState) => {
+						const current = prevState.taskOrganization
+						// Ignore stale snapshots that arrive out of order.
+						if (current && snapshot.revision < current.revision) {
+							return prevState
+						}
+						return { ...prevState, taskOrganization: snapshot }
+					})
+					break
+				}
+				case "taskOrganizationMutationResult": {
+					const result = message.taskOrganizationMutationResult
+					if (!result) {
+						break
+					}
+					const resolver = pendingTaskOrgMutations.current.get(result.requestId)
+					if (resolver) {
+						resolver(result)
+						pendingTaskOrgMutations.current.delete(result.requestId)
+					}
+					break
+				}
 			}
 		},
 		[setListApiConfigMeta],
@@ -509,6 +598,27 @@ export const ExtensionStateContextProvider: React.FC<{
 			window.removeEventListener("message", handleMessage)
 		}
 	}, [handleMessage])
+
+	const mutateTaskOrganization = useCallback(
+		async (mutation: TaskOrganizationMutationRequestV1["mutation"]): Promise<TaskOrganizationMutationResultV1> => {
+			const requestId = `task-org-${Date.now()}-${Math.random().toString(36).slice(2)}`
+			const currentRevision = taskOrgRevisionRef.current
+
+			vscode.postMessage({
+				type: "taskOrganizationMutation",
+				taskOrganizationMutation: {
+					requestId,
+					baseRevision: currentRevision,
+					mutation,
+				},
+			} as WebviewMessage)
+
+			return new Promise((resolve) => {
+				pendingTaskOrgMutations.current.set(requestId, resolve)
+			})
+		},
+		[],
+	)
 
 	useEffect(() => {
 		vscode.postMessage({ type: "webviewDidLaunch" })
@@ -654,11 +764,18 @@ export const ExtensionStateContextProvider: React.FC<{
 		showWorktreesInHomeScreen: state.showWorktreesInHomeScreen ?? true,
 		setShowWorktreesInHomeScreen: (value) =>
 			setState((prevState) => ({ ...prevState, showWorktreesInHomeScreen: value })),
+		mutateTaskOrganization,
 	}
 
 	return <ExtensionStateContext.Provider value={contextValue}>{children}</ExtensionStateContext.Provider>
 }
 
+/**
+ * Hook to consume the extension state context.
+ *
+ * @returns The current {@link ExtensionStateContextType} value.
+ * @throws {Error} If called outside of an {@link ExtensionStateContextProvider}.
+ */
 export const useExtensionState = () => {
 	const context = React.useContext(ExtensionStateContext)
 

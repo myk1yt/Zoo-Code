@@ -1,12 +1,13 @@
 import { render, screen } from "@/utils/test-utils"
 
-import type { HistoryItem } from "@roo-code/types"
+import type { HistoryItem, TaskOrganizationStateV1 } from "@roo-code/types"
 
 import HistoryPreview from "../HistoryPreview"
 import type { TaskGroup } from "../types"
 
 vi.mock("../useTaskSearch")
 vi.mock("../useGroupedTasks")
+vi.mock("@/context/ExtensionStateContext")
 
 vi.mock("../TaskGroupItem", () => {
 	return {
@@ -21,10 +22,22 @@ vi.mock("../TaskGroupItem", () => {
 import { useTaskSearch } from "../useTaskSearch"
 import { useGroupedTasks } from "../useGroupedTasks"
 import TaskGroupItem from "../TaskGroupItem"
+import { useExtensionState } from "@/context/ExtensionStateContext"
 
 const mockUseTaskSearch = useTaskSearch as any
+const mockUseExtensionState = useExtensionState as any
 const mockUseGroupedTasks = useGroupedTasks as any
 const mockTaskGroupItem = TaskGroupItem as any
+
+function createEmptyOrganizationState(): TaskOrganizationStateV1 {
+	return {
+		schemaVersion: 1,
+		revision: 0,
+		folders: [],
+		pins: [],
+		updatedAt: 0,
+	}
+}
 
 const mockTasks: HistoryItem[] = [
 	{
@@ -35,6 +48,7 @@ const mockTasks: HistoryItem[] = [
 		tokensIn: 100,
 		tokensOut: 50,
 		totalCost: 0.01,
+		workspace: "/test/workspace",
 	},
 	{
 		id: "task-2",
@@ -44,6 +58,7 @@ const mockTasks: HistoryItem[] = [
 		tokensIn: 200,
 		tokensOut: 100,
 		totalCost: 0.02,
+		workspace: "/test/workspace",
 	},
 	{
 		id: "task-3",
@@ -53,6 +68,7 @@ const mockTasks: HistoryItem[] = [
 		tokensIn: 150,
 		tokensOut: 75,
 		totalCost: 0.015,
+		workspace: "/test/workspace",
 	},
 	{
 		id: "task-4",
@@ -62,6 +78,7 @@ const mockTasks: HistoryItem[] = [
 		tokensIn: 300,
 		tokensOut: 150,
 		totalCost: 0.03,
+		workspace: "/test/workspace",
 	},
 	{
 		id: "task-5",
@@ -71,6 +88,7 @@ const mockTasks: HistoryItem[] = [
 		tokensIn: 250,
 		tokensOut: 125,
 		totalCost: 0.025,
+		workspace: "/test/workspace",
 	},
 	{
 		id: "task-6",
@@ -80,6 +98,7 @@ const mockTasks: HistoryItem[] = [
 		tokensIn: 400,
 		tokensOut: 200,
 		totalCost: 0.04,
+		workspace: "/test/workspace",
 	},
 ]
 
@@ -95,6 +114,15 @@ function createMockGroups(tasks: HistoryItem[]): TaskGroup[] {
 describe("HistoryPreview", () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
+		mockUseExtensionState.mockReturnValue({
+			taskOrganization: createEmptyOrganizationState(),
+			mutateTaskOrganization: vi.fn().mockResolvedValue({
+				requestId: "",
+				success: true,
+				committedRevision: 1,
+			}),
+			cwd: "/test/workspace",
+		})
 	})
 
 	it("renders nothing when no tasks are available", () => {
@@ -154,6 +182,51 @@ describe("HistoryPreview", () => {
 		expect(screen.getByTestId("task-group-task-4")).toBeInTheDocument()
 		expect(screen.queryByTestId("task-group-task-5")).not.toBeInTheDocument()
 		expect(screen.queryByTestId("task-group-task-6")).not.toBeInTheDocument()
+	})
+
+	it("renders pinned tasks in a pinned section even when they are outside the first 4 groups", () => {
+		mockUseExtensionState.mockReturnValue({
+			taskOrganization: {
+				...createEmptyOrganizationState(),
+				pins: [
+					{ target: { kind: "task", taskId: "task-1" }, pinnedAt: 100 },
+					{ target: { kind: "task", taskId: "task-6" }, pinnedAt: 200 },
+					// Not in the visible (workspace-filtered) task list — hidden.
+					{ target: { kind: "task", taskId: "task-other-workspace" }, pinnedAt: 300 },
+				],
+			},
+			mutateTaskOrganization: vi.fn().mockResolvedValue({
+				requestId: "",
+				success: true,
+				committedRevision: 1,
+			}),
+			cwd: "/test/workspace",
+		})
+		mockUseTaskSearch.mockReturnValue({
+			tasks: mockTasks,
+			searchQuery: "",
+			setSearchQuery: vi.fn(),
+			sortOption: "newest",
+			setSortOption: vi.fn(),
+			lastNonRelevantSort: null,
+			setLastNonRelevantSort: vi.fn(),
+			showAllWorkspaces: false,
+			setShowAllWorkspaces: vi.fn(),
+		})
+		mockUseGroupedTasks.mockReturnValue({
+			groups: createMockGroups(mockTasks),
+			flatTasks: null,
+			toggleExpand: vi.fn(),
+			isSearchMode: false,
+		})
+
+		render(<HistoryPreview />)
+
+		// task-6 is not among the first 4 unfiled groups but must appear as pinned.
+		expect(screen.getByTestId("preview-pinned-section")).toBeInTheDocument()
+		expect(screen.getByTestId("preview-pinned-unit-task-1")).toBeInTheDocument()
+		expect(screen.getByTestId("preview-pinned-unit-task-6")).toBeInTheDocument()
+		expect(screen.queryByTestId("preview-pinned-unit-task-other-workspace")).not.toBeInTheDocument()
 	})
 
 	it("renders all groups when there are 4 or fewer", () => {
