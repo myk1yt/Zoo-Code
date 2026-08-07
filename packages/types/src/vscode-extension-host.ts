@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import type { GlobalSettings, RooCodeSettings } from "./global-settings.js"
+import type { GlobalSettings, RooCodeSettings, TerminalShellSelection } from "./global-settings.js"
 import type { ProviderSettings, ProviderSettingsEntry } from "./provider-settings.js"
 import type { HistoryItem } from "./history.js"
 import type { ModeConfig, PromptComponent } from "./mode.js"
@@ -103,6 +103,10 @@ export interface ExtensionMessage {
 		| "rules"
 		| "fileContent"
 		| "rooHistoryImportProgress"
+		// Terminal shell options response type
+		| "terminalShellOptions"
+		// Custom shell path picker response type
+		| "customShellPathSelected"
 	text?: string
 	/** For fileContent: { path, content, error? } */
 	fileContent?: { path: string; content: string | null; error?: string }
@@ -246,6 +250,13 @@ export interface ExtensionMessage {
 	copyProgressBytesCopied?: number
 	copyProgressTotalBytes?: number
 	copyProgressItemName?: string
+	// Terminal shell options response payload.
+	// Contains sanitized trusted shell options and the effective-shell summary.
+	terminalShellOptions?: TerminalShellOptionsPayload
+	// Custom shell path picker response payload.
+	// Carries the validated picked path (or a validation error) back to the
+	// webview so it can buffer the selection as pending until Save.
+	customShellPathSelected?: CustomShellPathSelectedPayload
 	// folderSelected
 	path?: string
 }
@@ -295,6 +306,7 @@ export type ExtensionState = Pick<
 	| "terminalZdotdir"
 	| "terminalProfile"
 	| "execaShellPath"
+	| "terminalShellSelection"
 	| "diagnosticsEnabled"
 	| "autoCloseZooOpenedFiles"
 	| "autoCloseZooOpenedFilesAfterUserEdited"
@@ -419,6 +431,62 @@ export type ExtensionState = Pick<
 	 * (captured during async getStateToPostToWebview) from overwriting newer messages.
 	 */
 	clineMessagesSeq?: number
+}
+
+/**
+ * A sanitized, display-safe shell option for the inline-terminal shell selector.
+ *
+ * The extension host populates this from trusted VS Code default/global profile
+ * scopes and known OS defaults. Workspace-controlled profiles are never included.
+ */
+export interface TerminalShellOption {
+	/** Stable identifier for this option (e.g. "auto", "profile:PowerShell", "path:C:\..."). */
+	id: string
+	/** User-facing display label. */
+	label: string
+	/** Shell family controlling invocation semantics and command chaining. */
+	family: "powershell" | "cmd" | "posix" | "fish" | "wsl"
+	/** Resolution source description (e.g. "vscode-default", "os-default", "user-override"). */
+	source: string
+	/** Whether the shell executable is currently available on this machine. */
+	available: boolean
+}
+
+/**
+ * Payload for the `terminalShellOptions` extension-host → webview response.
+ *
+ * Contains the list of selectable shell options and a summary of the
+ * currently effective shell so the settings UI can display it read-only.
+ */
+export interface TerminalShellOptionsPayload {
+	/** Selectable shell options grouped by family. */
+	options: TerminalShellOption[]
+	/** Summary of the currently effective resolved shell. */
+	effectiveShell?: {
+		/** Display label for the effective shell executable. */
+		label: string
+		/** Shell family of the effective shell. */
+		family: TerminalShellOption["family"]
+		/** Resolution source of the effective shell. */
+		source: string
+	}
+	/** Error message if option discovery failed (non-fatal; UI shows warning). */
+	error?: string
+}
+
+/**
+ * Payload for the `customShellPathSelected` extension-host → webview response.
+ *
+ * Sent after the user picks a shell executable via the native file dialog
+ * (`requestCustomShellPath`). Carries the validated path back to the webview
+ * so the selection can be buffered as pending state and persisted only when
+ * the user saves settings. Nothing is persisted when this message is sent.
+ */
+export interface CustomShellPathSelectedPayload {
+	/** The validated shell executable path. Present on success. */
+	path?: string
+	/** Error message if validation failed (non-fatal; UI shows warning). */
+	error?: string
 }
 
 export interface Command {
@@ -632,6 +700,10 @@ export interface WebviewMessage {
 		| "deleteRule"
 		| "openRuleFile"
 		| "openRulesDirectory"
+		// Terminal shell selection messages
+		| "requestTerminalShellOptions"
+		| "setTerminalShellSelection"
+		| "requestCustomShellPath"
 	text?: string
 	taskId?: string
 	editedMessageContent?: string
@@ -742,6 +814,9 @@ export interface WebviewMessage {
 	worktreeForce?: boolean
 	worktreeNewWindow?: boolean
 	worktreeIncludeContent?: string
+	// Terminal shell selection payload for `setTerminalShellSelection`.
+	// The extension host validates this before persisting to global settings.
+	terminalShellSelection?: TerminalShellSelection
 }
 
 export interface RequestOpenAiCodexRateLimitsMessage {
