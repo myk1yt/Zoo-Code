@@ -106,6 +106,7 @@ import {
 	handleCreateWorktreeInclude,
 	handleCheckoutBranch,
 } from "./worktree"
+import { routeUsageStatsMessage } from "./usageStatsMessageHandler"
 
 export const webviewMessageHandler = async (
 	provider: ClineProvider,
@@ -560,6 +561,12 @@ export const webviewMessageHandler = async (
 		} else if (operation === "edit" && editedContent) {
 			await handleEditOperation(messageTs, editedContent, images)
 		}
+	}
+
+	// Usage stats and dashboard messages are routed by the stats module's
+	// dispatcher, keeping this switch free of sixteen near-identical cases.
+	if (await routeUsageStatsMessage(provider, message)) {
+		return
 	}
 
 	switch (message.type) {
