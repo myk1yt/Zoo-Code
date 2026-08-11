@@ -379,6 +379,7 @@ export class ClineProvider
 				globalStoragePath,
 				this.dashboardTaskCatalog,
 				customPricingProvider,
+				this.providerSettingsManager,
 			)
 			this.usageStatsService.initialize().catch((error) => {
 				this.log(`Failed to initialize Usage Stats Service: ${error}`)
