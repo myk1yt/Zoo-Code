@@ -2,7 +2,6 @@ import * as fs from "fs/promises"
 import * as fsSync from "fs"
 import * as path from "path"
 import crypto from "crypto"
-import * as vscode from "vscode"
 
 import deepEqual from "fast-deep-equal"
 import type { HistoryItem } from "@roo-code/types"
@@ -105,13 +104,6 @@ export class TaskHistoryStore {
 	private fsWatcher: fsSync.FSWatcher | null = null
 	private reconcileTimer: ReturnType<typeof setTimeout> | null = null
 	private disposed = false
-	private readonly didChangeEmitter = new vscode.EventEmitter<void>()
-
-	/**
-	 * Fires after a successful history-cache mutation is consistent with its
-	 * corresponding persisted state.
-	 */
-	public readonly onDidChange: vscode.Event<void> = this.didChangeEmitter.event
 
 	/**
 	 * Promise that resolves when initialization is complete.
@@ -195,8 +187,6 @@ export class TaskHistoryStore {
 			this.fsWatcher.close()
 			this.fsWatcher = null
 		}
-
-		this.didChangeEmitter.dispose()
 
 		// Synchronously flush the index (best-effort)
 		this.flushIndex().catch((err) => {
@@ -282,8 +272,6 @@ export class TaskHistoryStore {
 			await this.onWrite(all)
 		}
 
-		this.fireDidChange()
-
 		return all
 	}
 
@@ -292,20 +280,15 @@ export class TaskHistoryStore {
 	 */
 	async delete(taskId: string): Promise<void> {
 		return this.withLock(async () => {
-			let changed = this.cache.delete(taskId)
+			this.cache.delete(taskId)
 			this.taskFileMtimes.delete(taskId)
 
-			// Remove per-task file. A missing file is already consistent with deletion.
+			// Remove per-task file (best-effort)
 			try {
 				const filePath = await this.getTaskFilePath(taskId)
 				await fs.unlink(filePath)
-				changed = true
 			} catch {
 				// File may already be deleted
-			}
-
-			if (!changed) {
-				return
 			}
 
 			this.scheduleIndexWrite()
@@ -314,8 +297,6 @@ export class TaskHistoryStore {
 			if (this.onWrite) {
 				await this.onWrite(this.getAll())
 			}
-
-			this.fireDidChange()
 		})
 	}
 
@@ -324,22 +305,16 @@ export class TaskHistoryStore {
 	 */
 	async deleteMany(taskIds: string[]): Promise<void> {
 		return this.withLock(async () => {
-			let changed = false
 			for (const taskId of taskIds) {
-				changed = this.cache.delete(taskId) || changed
+				this.cache.delete(taskId)
 				this.taskFileMtimes.delete(taskId)
 
 				try {
 					const filePath = await this.getTaskFilePath(taskId)
 					await fs.unlink(filePath)
-					changed = true
 				} catch {
 					// File may already be deleted
 				}
-			}
-
-			if (!changed) {
-				return
 			}
 
 			this.scheduleIndexWrite()
@@ -348,8 +323,6 @@ export class TaskHistoryStore {
 			if (this.onWrite) {
 				await this.onWrite(this.getAll())
 			}
-
-			this.fireDidChange()
 		})
 	}
 
@@ -420,10 +393,6 @@ export class TaskHistoryStore {
 
 			if (changed) {
 				this.scheduleIndexWrite()
-				if (this.onWrite) {
-					await this.onWrite(this.getAll())
-				}
-				this.fireDidChange()
 			}
 		})
 	}
@@ -810,25 +779,16 @@ export class TaskHistoryStore {
 	 */
 	async invalidate(taskId: string): Promise<void> {
 		return this.withLock(async () => {
-			let changed = false
 			try {
 				const item = await this.readTaskFile(taskId)
 				if (item) {
-					const existing = this.cache.get(taskId)
-					changed = !existing || !this.historyItemsEqual(existing, item)
-					if (changed) {
-						this.cache.set(taskId, item)
-					}
+					this.cache.set(taskId, item)
 				} else {
-					changed = this.cache.delete(taskId)
+					this.cache.delete(taskId)
 				}
 				this.taskFileMtimes.delete(taskId)
 			} catch {
-				changed = this.cache.delete(taskId)
-			}
-
-			if (changed) {
-				this.fireDidChange()
+				this.cache.delete(taskId)
 			}
 		})
 	}
@@ -838,11 +798,7 @@ export class TaskHistoryStore {
 	 */
 	async invalidateAll(): Promise<void> {
 		return this.withLock(async () => {
-			const hadEntries = this.cache.size > 0
 			this.cache.clear()
-			if (hadEntries) {
-				this.fireDidChange()
-			}
 		})
 	}
 
@@ -860,7 +816,6 @@ export class TaskHistoryStore {
 		}
 
 		await this.withLock(async () => {
-			let changed = false
 			const tasksDir = await this.getTasksDir()
 
 			for (const item of taskHistoryEntries) {
@@ -887,20 +842,15 @@ export class TaskHistoryStore {
 					// File doesn't exist, write it
 					await safeWriteJson(filePath, item)
 					this.cache.set(item.id, item)
-					changed = true
 				}
 			}
 
-			if (changed) {
-				// Write the index
-				await this.writeIndex()
+			// Write the index
+			await this.writeIndex()
 
-				// Repair any delegation inconsistencies introduced by the migrated entries.
-				// Run the lock-free core because migration already holds the store lock.
-				await this.reconcileDelegationStateCore(this.getPersistedActiveIds())
-
-				this.fireDidChange()
-			}
+			// Repair any delegation inconsistencies introduced by the migrated entries.
+			// Run the lock-free core because migration already holds the store lock.
+			await this.reconcileDelegationStateCore(this.getPersistedActiveIds())
 		})
 	}
 
@@ -1169,19 +1119,8 @@ export class TaskHistoryStore {
 			if (this.onWrite) {
 				await this.onWrite(all)
 			}
-			this.fireDidChange()
 			return all
 		})
-	}
-
-	private fireDidChange(): void {
-		if (!this.disposed) {
-			this.didChangeEmitter.fire()
-		}
-	}
-
-	private historyItemsEqual(left: HistoryItem, right: HistoryItem): boolean {
-		return JSON.stringify(left) === JSON.stringify(right)
 	}
 
 	// ────────────────────────────── Private: Write lock ──────────────────────────────

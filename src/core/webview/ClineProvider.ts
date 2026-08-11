@@ -193,7 +193,6 @@ export class ClineProvider
 	protected mcpHub?: McpHub // Change from private to protected
 	protected skillsManager?: SkillsManager
 	private usageStatsService?: UsageStatsService
-	private readonly dashboardTaskCatalog: DashboardTaskCatalog
 	private marketplaceManager: MarketplaceManager
 	private mdmService?: MdmService
 	private taskCreationCallback: (task: Task) => void
@@ -330,7 +329,6 @@ export class ClineProvider
 				this.scheduleGlobalStateWriteThrough()
 			},
 		})
-		this.dashboardTaskCatalog = new DashboardTaskCatalog(this.taskHistoryStore)
 		this.initializeTaskHistoryStore().catch((error) => {
 			this.log(`Failed to initialize TaskHistoryStore: ${error}`)
 		})
@@ -365,38 +363,6 @@ export class ClineProvider
 		this.skillsManager.initialize().catch((error) => {
 			this.log(`Failed to initialize Skills Manager: ${error}`)
 		})
-
-		// Initialize Usage Stats Service for local token usage tracking.
-		// Initialization failure is non-fatal — the service becomes unavailable
-		// and stats handlers return "service unavailable" errors gracefully.
-		try {
-			const globalStoragePath = this.contextProxy.globalStorageUri.fsPath
-			// Provide a query-time custom model pricing provider so the dashboard
-			// can resolve pricing for custom/user-configured models (e.g. OpenAI
-			// Compatible) without relying on capture-time persistence in Task.ts.
-			const customPricingProvider = () => buildCustomPricingMap(this.contextProxy)
-			this.usageStatsService = new UsageStatsService(
-				globalStoragePath,
-				this.dashboardTaskCatalog,
-				customPricingProvider,
-				this.providerSettingsManager,
-			)
-			this.usageStatsService.initialize().catch((error) => {
-				this.log(`Failed to initialize Usage Stats Service: ${error}`)
-				this.usageStatsService = undefined
-			})
-
-			// Subscribe to cross-window file changes so this window's dashboard
-			// refreshes when another VS Code window records new usage events.
-			this.usageStatsService.onDidChange(() => {
-				this.postMessageToWebview({ type: "usageStatsChanged" }).catch(() => {
-					// View disposed, drop message silently
-				})
-			})
-		} catch (error) {
-			this.log(`Failed to create Usage Stats Service: ${error}`)
-			this.usageStatsService = undefined
-		}
 
 		this.marketplaceManager = new MarketplaceManager(this.context, this.customModesManager)
 
@@ -3200,6 +3166,14 @@ export class ClineProvider
 
 	public getSkillsManager(): SkillsManager | undefined {
 		return this.skillsManager
+	}
+
+	public getTaskHistoryStore(): TaskHistoryStore {
+		return this.taskHistoryStore
+	}
+
+	public setUsageStatsService(service: UsageStatsService | undefined): void {
+		this.usageStatsService = service
 	}
 
 	/**
