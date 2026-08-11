@@ -127,7 +127,6 @@ export interface ExtensionMessage {
 		| "clearUsageStatsResponse"
 		| "exportUsageStatsResponse"
 		| "requestClearNonceResponse"
-		| "rebuildUsageStatsResponse"
 		| "usageStatsChanged"
 		// Dashboard response types
 		| "dashboardStatsResponse"
@@ -289,7 +288,6 @@ export interface ExtensionMessage {
 	// Usage stats response payloads
 	usageStatsSnapshot?: StatsSnapshot
 	clearUsageStatsResult?: { success: boolean; error?: string }
-	rebuildUsageStatsResult?: { success: boolean; error?: string }
 	exportUsageStatsResult?: { format: "json" | "csv"; data: string; error?: string }
 	// B2 fix: host-issued clear nonce returned in `requestClearNonceResponse`.
 	// null when the service is unavailable or an error occurred (see `error`).
@@ -710,7 +708,6 @@ export interface WebviewMessage {
 		| "clearUsageStats"
 		| "exportUsageStats"
 		| "requestClearNonce"
-		| "rebuildUsageStats"
 		// Dashboard request types
 		| "getDashboardSessionDetail"
 		| "getDashboardSessions"
