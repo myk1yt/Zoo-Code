@@ -88,9 +88,6 @@ import { MdmService } from "../../services/mdm/MdmService"
 import { SkillsManager } from "../../services/skills/SkillsManager"
 import { UsageStatsService } from "../../services/stats"
 import type { StatsStreamSink } from "../../services/stats"
-import { buildCustomPricingMap } from "./usageStatsMessageHandler"
-import { DashboardTaskCatalog } from "../../services/stats/DashboardTaskCatalog"
-
 import { fileExistsAtPath } from "../../utils/fs"
 import { setTtsEnabled, setTtsSpeed } from "../../utils/tts"
 import { getWorkspaceGitInfo } from "../../utils/git"
@@ -832,7 +829,7 @@ export class ClineProvider
 		await this.marketplaceManager?.cleanup()
 		this.customModesManager?.dispose()
 		this.usageStatsService?.dispose()
-		this.dashboardTaskCatalog.dispose()
+		this.usageStatsService = undefined
 		this.taskHistoryStore.dispose()
 		this.flushGlobalStateWriteThrough()
 		this.log("Disposed all disposables")
