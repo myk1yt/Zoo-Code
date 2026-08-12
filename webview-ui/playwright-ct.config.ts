@@ -85,6 +85,8 @@ export default defineConfig({
 		viewport: { width: 520, height: 360 },
 		deviceScaleFactor: 1,
 		colorScheme: "dark",
+		video: "retain-on-failure",
+		trace: "retain-on-failure",
 	},
 	expect: {
 		toHaveScreenshot: {
