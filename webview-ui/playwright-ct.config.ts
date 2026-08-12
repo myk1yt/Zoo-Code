@@ -8,6 +8,8 @@ import tailwindcss from "@tailwindcss/vite"
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 
+const TRANSLATION_CONTEXT_STUB = path.resolve(dirname, "./playwright/TranslationContext.ts")
+
 const monocartReporter: ReporterDescription = [
 	"monocart-reporter",
 	{
@@ -57,17 +59,41 @@ export default defineConfig({
 				tailwindcss(),
 			],
 			resolve: {
-				alias: {
-					"@src/i18n/TranslationContext": path.resolve(dirname, "./playwright/TranslationContext.ts"),
-					"@": path.resolve(dirname, "./src"),
-					"@src": path.resolve(dirname, "./src"),
-					"@roo": path.resolve(dirname, "../src/shared"),
-					"@vscode/webview-ui-toolkit/react": path.resolve(
-						dirname,
-						"./src/__mocks__/@vscode/webview-ui-toolkit/react.tsx",
-					),
-					vscode: path.resolve(dirname, "../src/__mocks__/vscode.js"),
-				},
+				// Use the array form so exact-match entries are guaranteed to win
+				// over the `@`/`@src` prefix aliases regardless of evaluation order.
+				alias: [
+					// Only the `@src/` spelling of the translation context is stubbed
+					// (used by TaskList). The dashboard tests intentionally use the REAL
+					// `@/i18n/TranslationContext` to render real locale labels, so it is
+					// NOT aliased here.
+					{
+						find: /^@src\/i18n\/TranslationContext$/,
+						replacement: TRANSLATION_CONTEXT_STUB,
+					},
+					// `TabContent` (rendered by DashboardView) and the real
+					// `TranslationContext` both call `useExtensionState()`. The real
+					// `ExtensionStateContext` module imports `@roo-code/types` → Zod,
+					// which crashes the Playwright CT browser bundle with
+					// `ReferenceError: z is not defined`. Redirect BOTH spellings of the
+					// context module to a lightweight browser-safe mock so the whole
+					// Zod chain is severed at the source.
+					{
+						find: /^@\/context\/ExtensionStateContext$/,
+						replacement: path.resolve(dirname, "./playwright/ExtensionStateContext.mock.tsx"),
+					},
+					{
+						find: /^@src\/context\/ExtensionStateContext$/,
+						replacement: path.resolve(dirname, "./playwright/ExtensionStateContext.mock.tsx"),
+					},
+					{ find: "@", replacement: path.resolve(dirname, "./src") },
+					{ find: "@src", replacement: path.resolve(dirname, "./src") },
+					{ find: "@roo", replacement: path.resolve(dirname, "../src/shared") },
+					{
+						find: "@vscode/webview-ui-toolkit/react",
+						replacement: path.resolve(dirname, "./src/__mocks__/@vscode/webview-ui-toolkit/react.tsx"),
+					},
+					{ find: "vscode", replacement: path.resolve(dirname, "../src/__mocks__/vscode.js") },
+				],
 			},
 			define: {
 				"process.platform": JSON.stringify(process.platform),
