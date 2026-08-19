@@ -188,13 +188,12 @@ describe("convertAnthropicMessageToGemini", () => {
 			{
 				role: "user",
 				parts: [
-					{ text: "Here's the result:" },
 					{
 						functionResponse: {
 							name: "calculator",
 							response: {
 								name: "calculator",
-								content: "The result is 5",
+								content: "The result is 5\n\nHere's the result:",
 							},
 						},
 					},
@@ -203,22 +202,186 @@ describe("convertAnthropicMessageToGemini", () => {
 		])
 	})
 
-	it("should handle empty tool result content", () => {
+	it("should preserve an empty tool result as a user function response", () => {
+		const toolIdToName = new Map([["calculator-123", "calculator"]])
 		const anthropicMessage: Anthropic.Messages.MessageParam = {
 			role: "user",
 			content: [
 				{
 					type: "tool_result",
 					tool_use_id: "calculator-123",
-					content: null as any, // Empty content
+					content: "",
 				},
 			],
 		}
 
-		const result = convertAnthropicMessageToGemini(anthropicMessage)
+		const result = convertAnthropicMessageToGemini(anthropicMessage, { toolIdToName })
 
-		// Should skip the empty tool result
-		expect(result).toEqual([])
+		expect(result).toEqual([
+			{
+				role: "user",
+				parts: [
+					{
+						functionResponse: {
+							name: "calculator",
+							response: { name: "calculator", content: "(empty)" },
+						},
+					},
+				],
+			},
+		])
+	})
+
+	it("should handle null tool result content safely", () => {
+		const toolIdToName = new Map([["calculator-123", "calculator"]])
+		const anthropicMessage: Anthropic.Messages.MessageParam = {
+			role: "user",
+			content: [
+				{
+					type: "tool_result",
+					tool_use_id: "calculator-123",
+					content: null as any,
+				},
+			],
+		}
+
+		const result = convertAnthropicMessageToGemini(anthropicMessage, { toolIdToName })
+
+		expect(result).toEqual([
+			{
+				role: "user",
+				parts: [
+					{
+						functionResponse: {
+							name: "calculator",
+							response: { name: "calculator", content: "(empty)" },
+						},
+					},
+				],
+			},
+		])
+	})
+
+	it("should preserve an empty tool result array as a user function response", () => {
+		const toolIdToName = new Map([["calculator-123", "calculator"]])
+		const anthropicMessage: Anthropic.Messages.MessageParam = {
+			role: "user",
+			content: [
+				{
+					type: "tool_result",
+					tool_use_id: "calculator-123",
+					content: [],
+				},
+			],
+		}
+
+		const result = convertAnthropicMessageToGemini(anthropicMessage, { toolIdToName })
+
+		expect(result).toEqual([
+			{
+				role: "user",
+				parts: [
+					{
+						functionResponse: {
+							name: "calculator",
+							response: { name: "calculator", content: "(empty)" },
+						},
+					},
+				],
+			},
+		])
+	})
+
+	it("should merge environment_details into tool_result response content without polluting functionResponse parts", () => {
+		const toolIdToName = new Map<string, string>([["fetch-1", "fetch_url"]])
+		const anthropicMessage: Anthropic.Messages.MessageParam = {
+			role: "user",
+			content: [
+				{
+					type: "tool_result",
+					tool_use_id: "fetch-1",
+					content: "Response data from endpoint",
+				},
+				{
+					type: "text",
+					text: "<environment_details>\nVSCode Workspace: /workspace\n</environment_details>",
+				},
+			],
+		}
+
+		const result = convertAnthropicMessageToGemini(anthropicMessage, { toolIdToName })
+
+		expect(result).toEqual([
+			{
+				role: "user",
+				parts: [
+					{
+						functionResponse: {
+							name: "fetch_url",
+							response: {
+								name: "fetch_url",
+								content:
+									"Response data from endpoint\n\n<environment_details>\nVSCode Workspace: /workspace\n</environment_details>",
+							},
+						},
+					},
+				],
+			},
+		])
+	})
+
+	it("should merge sibling text into the last tool_result for parallel function calls", () => {
+		const toolIdToName = new Map<string, string>([
+			["call-1", "tool_a"],
+			["call-2", "tool_b"],
+		])
+		const anthropicMessage: Anthropic.Messages.MessageParam = {
+			role: "user",
+			content: [
+				{
+					type: "tool_result",
+					tool_use_id: "call-1",
+					content: "Result A",
+				},
+				{
+					type: "tool_result",
+					tool_use_id: "call-2",
+					content: "Result B",
+				},
+				{
+					type: "text",
+					text: "<environment_details>Context</environment_details>",
+				},
+			],
+		}
+
+		const result = convertAnthropicMessageToGemini(anthropicMessage, { toolIdToName })
+
+		expect(result).toEqual([
+			{
+				role: "user",
+				parts: [
+					{
+						functionResponse: {
+							name: "tool_a",
+							response: {
+								name: "tool_a",
+								content: "Result A",
+							},
+						},
+					},
+					{
+						functionResponse: {
+							name: "tool_b",
+							response: {
+								name: "tool_b",
+								content: "Result B\n\n<environment_details>Context</environment_details>",
+							},
+						},
+					},
+				],
+			},
+		])
 	})
 
 	it("should convert a message with tool result as array with text only", () => {

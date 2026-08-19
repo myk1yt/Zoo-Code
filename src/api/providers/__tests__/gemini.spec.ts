@@ -15,6 +15,7 @@ import { Anthropic } from "@anthropic-ai/sdk"
 import { type ModelInfo, geminiDefaultModelId, ApiProviderError } from "@roo-code/types"
 
 import { t } from "i18next"
+import type { ApiHandlerCreateMessageMetadata } from "../../index"
 import { GeminiHandler } from "../gemini"
 import { asyncStreamFrom, collectStream } from "../../../test-utils/stream"
 
@@ -289,6 +290,82 @@ describe("GeminiHandler", () => {
 						temperature: 1,
 						systemInstruction: systemPrompt,
 					}),
+				}),
+			)
+		})
+
+		it("should keep an empty tool result as the final user turn", async () => {
+			const messages: Anthropic.Messages.MessageParam[] = [
+				{ role: "user", content: "Run the tool" },
+				{
+					role: "assistant",
+					content: [{ type: "tool_use", id: "call-1", name: "read_file", input: { path: "empty.txt" } }],
+				},
+				{
+					role: "user",
+					content: [{ type: "tool_result", tool_use_id: "call-1", content: "" }],
+				},
+			]
+			const metadata: ApiHandlerCreateMessageMetadata = {
+				taskId: "test-task",
+				tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+			}
+
+			const generateContentStream = vitest.mocked(handler["client"].models.generateContentStream)
+			generateContentStream.mockResolvedValue(asyncStreamFrom([]))
+
+			await collectStream(handler.createMessage(systemPrompt, messages, metadata))
+
+			const params = generateContentStream.mock.calls[0][0]
+			const contents = params.contents as Array<{ role?: string; parts?: unknown[] }>
+			expect(contents.at(-1)).toEqual({
+				role: "user",
+				parts: [
+					{
+						functionResponse: {
+							name: "read_file",
+							response: { name: "read_file", content: "(empty)" },
+						},
+					},
+				],
+			})
+		})
+
+		it("appends a user continuation when history ends with an assistant turn", async () => {
+			const generateContentStream = vitest.mocked(handler["client"].models.generateContentStream)
+			generateContentStream.mockResolvedValue(asyncStreamFrom([]))
+
+			await collectStream(handler.createMessage(systemPrompt, mockMessages))
+
+			expect(generateContentStream).toHaveBeenCalledWith(
+				expect.objectContaining({
+					contents: [
+						{ role: "user", parts: [{ text: "Hello" }] },
+						{ role: "model", parts: [{ text: "Hi there!" }] },
+						{ role: "user", parts: [{ text: "Continue." }] },
+					],
+				}),
+			)
+		})
+
+		it("does not append a continuation when history ends with a user turn", async () => {
+			const generateContentStream = vitest.mocked(handler["client"].models.generateContentStream)
+			generateContentStream.mockResolvedValue(asyncStreamFrom([]))
+			const userEndingMessages: Anthropic.Messages.MessageParam[] = [
+				{ role: "user", content: "Hello" },
+				{ role: "assistant", content: "Hi there!" },
+				{ role: "user", content: "Please continue" },
+			]
+
+			await collectStream(handler.createMessage(systemPrompt, userEndingMessages))
+
+			expect(generateContentStream).toHaveBeenCalledWith(
+				expect.objectContaining({
+					contents: [
+						{ role: "user", parts: [{ text: "Hello" }] },
+						{ role: "model", parts: [{ text: "Hi there!" }] },
+						{ role: "user", parts: [{ text: "Please continue" }] },
+					],
 				}),
 			)
 		})
