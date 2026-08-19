@@ -270,10 +270,10 @@ export class GeminiHandler extends BaseProvider implements SingleCompletionHandl
 			.map((message) => convertAnthropicMessageToGemini(message, { includeThoughtSignatures, toolIdToName }))
 			.flat()
 
-		// Vertex rejects requests that end with a model turn, which can occur when
+		// Gemini and Vertex AI reject requests that end with a model turn, which can occur when
 		// resuming after an interrupted response. Preserve that turn and explicitly
 		// ask the model to continue rather than dropping conversation history.
-		if (this.isVertex && contents.at(-1)?.role === "model") {
+		if (contents.at(-1)?.role === "model") {
 			contents.push({ role: "user", parts: [{ text: "Continue." }] })
 		}
 

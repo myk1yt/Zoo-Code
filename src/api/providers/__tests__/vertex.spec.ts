@@ -221,5 +221,45 @@ describe("VertexHandler", () => {
 			expect(excludedCount).toBe(1)
 			expect(includedCount).toBe(1)
 		})
+
+		it("should correctly handle :thinking suffix for gemini-3.7-flash", () => {
+			const testHandler = new VertexHandler({
+				apiModelId: "gemini-3.7-flash:thinking",
+				vertexProjectId: "test-project",
+				vertexRegion: "us-central1",
+			})
+
+			const modelInfo = testHandler.getModel()
+			expect(modelInfo.id).toBe("gemini-3.7-flash")
+			expect(modelInfo.info).toBeDefined()
+			expect(modelInfo.info.excludedTools).toContain("apply_diff")
+			expect(modelInfo.info.includedTools).toContain("edit")
+			expect(modelInfo.reasoning).toBeDefined()
+		})
+
+		it("should handle custom unlisted gemini models with :thinking suffix", () => {
+			const testHandler = new VertexHandler({
+				apiModelId: "gemini-future-model:thinking",
+				vertexProjectId: "test-project",
+				vertexRegion: "us-central1",
+			})
+
+			const modelInfo = testHandler.getModel()
+			expect(modelInfo.id).toBe("gemini-future-model")
+			expect(modelInfo.info).toBeDefined()
+			expect(modelInfo.info.excludedTools).toContain("apply_diff")
+			expect(modelInfo.info.includedTools).toContain("edit")
+		})
+
+		it("should fall back to a default Gemini model instead of Claude when apiModelId is undefined", () => {
+			const testHandler = new VertexHandler({
+				vertexProjectId: "test-project",
+				vertexRegion: "us-central1",
+			})
+
+			const modelInfo = testHandler.getModel()
+			expect(modelInfo.id).toBe("gemini-3.7-flash")
+			expect(modelInfo.id).not.toContain("claude")
+		})
 	})
 })
