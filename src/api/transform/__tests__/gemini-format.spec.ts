@@ -99,7 +99,7 @@ describe("convertAnthropicMessageToGemini", () => {
 					source: {
 						type: "url", // Not supported
 						url: "https://example.com/image.jpg",
-					} as any,
+					} as unknown as Anthropic.Messages.ImageBlockParam["source"],
 				},
 			],
 		}
@@ -149,7 +149,10 @@ describe("convertAnthropicMessageToGemini", () => {
 		const anthropicMessage: Anthropic.Messages.MessageParam = {
 			role: "assistant",
 			content: [
-				{ type: "thoughtSignature", thoughtSignature: "sig-123" } as any,
+				{
+					type: "thoughtSignature",
+					thoughtSignature: "sig-123",
+				} as unknown as Anthropic.Messages.ContentBlockParam,
 				{ type: "tool_use", id: "call-1", name: "toolA", input: { a: 1 } },
 				{ type: "tool_use", id: "call-2", name: "toolB", input: { b: 2 } },
 			],
@@ -158,7 +161,7 @@ describe("convertAnthropicMessageToGemini", () => {
 		const result = convertAnthropicMessageToGemini(anthropicMessage)
 		expect(result).toHaveLength(1)
 
-		const parts = result[0]!.parts as any[]
+		const parts = result[0]!.parts as Array<{ functionCall?: unknown; thoughtSignature?: string }>
 		const functionCallParts = parts.filter((p) => p.functionCall)
 		expect(functionCallParts).toHaveLength(2)
 
@@ -240,7 +243,7 @@ describe("convertAnthropicMessageToGemini", () => {
 				{
 					type: "tool_result",
 					tool_use_id: "calculator-123",
-					content: null as any,
+					content: null as unknown as string,
 				},
 			],
 		}
@@ -616,7 +619,7 @@ describe("convertAnthropicMessageToGemini", () => {
 				{
 					type: "unknown_type", // Unsupported type
 					data: "some data",
-				} as any,
+				} as unknown as Anthropic.Messages.ContentBlockParam,
 				{ type: "text", text: "Valid content" },
 			],
 		}
@@ -636,9 +639,9 @@ describe("convertAnthropicMessageToGemini", () => {
 			role: "assistant",
 			content: [
 				{
-					type: "reasoning" as any,
+					type: "reasoning",
 					text: "Let me think about this...",
-				},
+				} as unknown as Anthropic.Messages.ContentBlockParam,
 				{ type: "text", text: "Here's my answer" },
 			],
 		}
