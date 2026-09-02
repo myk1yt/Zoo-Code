@@ -27,6 +27,7 @@ import type { SingleCompletionHandler, ApiHandlerCreateMessageMetadata, Complete
 import { BaseProvider } from "./base-provider"
 import { NOT_PROVIDED } from "./constants"
 import { parseVertexJsonCredentials } from "./utils/vertex-credentials"
+import { handleProviderError } from "./utils/error-handler"
 
 type GeminiHandlerOptions = ApiHandlerOptions & {
 	isVertex?: boolean
@@ -176,6 +177,7 @@ export class GeminiHandler extends BaseProvider implements SingleCompletionHandl
 	protected options: ApiHandlerOptions
 
 	private client: GoogleGenAI
+	private readonly isVertex: boolean
 	private lastThoughtSignature?: string
 	private lastResponseId?: string
 	private readonly providerName = "Gemini"
@@ -184,6 +186,7 @@ export class GeminiHandler extends BaseProvider implements SingleCompletionHandl
 		super()
 
 		this.options = options
+		this.isVertex = isVertex ?? false
 
 		const project = this.options.vertexProjectId ?? NOT_PROVIDED
 		const location = this.options.vertexRegion ?? NOT_PROVIDED
@@ -268,6 +271,13 @@ export class GeminiHandler extends BaseProvider implements SingleCompletionHandl
 		const contents = geminiMessages
 			.map((message) => convertAnthropicMessageToGemini(message, { includeThoughtSignatures, toolIdToName }))
 			.flat()
+
+		// Gemini and Vertex AI reject requests that end with a model turn, which can occur when
+		// resuming after an interrupted response. Preserve that turn and explicitly
+		// ask the model to continue rather than dropping conversation history.
+		if (contents.at(-1)?.role === "model") {
+			contents.push({ role: "user", parts: [{ text: "Continue." }] })
+		}
 
 		// Tools are always present (minimum ALWAYS_AVAILABLE_TOOLS).
 		// Google built-in tools (Grounding, URL Context) are mutually exclusive
@@ -481,11 +491,9 @@ export class GeminiHandler extends BaseProvider implements SingleCompletionHandl
 			const apiError = new ApiProviderError(errorMessage, this.providerName, model, "createMessage")
 			TelemetryService.instance.captureException(apiError)
 
-			if (error instanceof Error) {
-				throw new Error(t("common:errors.gemini.generate_stream", { error: error.message }))
-			}
-
-			throw error
+			throw handleProviderError(error, "Gemini", {
+				messageTransformer: (msg) => t("common:errors.gemini.generate_stream", { error: msg }),
+			})
 		}
 	}
 
@@ -617,11 +625,9 @@ export class GeminiHandler extends BaseProvider implements SingleCompletionHandl
 			const apiError = new ApiProviderError(errorMessage, this.providerName, model, "completePrompt")
 			TelemetryService.instance.captureException(apiError)
 
-			if (error instanceof Error) {
-				throw new Error(t("common:errors.gemini.generate_complete_prompt", { error: error.message }))
-			}
-
-			throw error
+			throw handleProviderError(error, "Gemini", {
+				messageTransformer: (msg) => t("common:errors.gemini.generate_complete_prompt", { error: msg }),
+			})
 		}
 	}
 

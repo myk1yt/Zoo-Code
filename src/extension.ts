@@ -46,6 +46,7 @@ import {
 	registerCodeActions,
 	registerTerminalActions,
 	CodeActionProvider,
+	activateDashboard,
 } from "./activate"
 import { initializeI18n } from "./i18n"
 import { initializeModelCacheRefresh } from "./api/providers/fetchers/modelCache"
@@ -63,6 +64,7 @@ let outputChannel: vscode.OutputChannel
 let extensionContext: vscode.ExtensionContext
 let cloudService: CloudService | undefined
 
+let authStateChangedHandler: (() => void) | undefined
 let settingsUpdatedHandler: (() => void) | undefined
 
 /**
@@ -220,8 +222,13 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	// Initialize the provider *before* the Roo Code Cloud service.
 	const provider = new ClineProvider(context, outputChannel, "sidebar", contextProxy, mdmService)
+	activateDashboard(context, provider)
 
 	// Initialize Roo Code Cloud service.
+	authStateChangedHandler = () => {
+		void ClineProvider.getVisibleInstance()?.postStateToWebviewWithoutClineMessages()
+	}
+
 	settingsUpdatedHandler = () => {
 		void ClineProvider.getVisibleInstance()
 			?.postStateToWebviewWithoutClineMessages()
@@ -234,6 +241,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	try {
 		cloudService = await CloudService.createInstance(context, cloudLogger, {
+			"auth-state-changed": authStateChangedHandler,
 			"settings-updated": settingsUpdatedHandler,
 		})
 
