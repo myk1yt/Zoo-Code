@@ -1,0 +1,109 @@
+diff --git a/src/core/webview/ClineProvider.ts b/src/core/webview/ClineProvider.ts
+index 2263257cd..c410af096 100644
+--- a/src/core/webview/ClineProvider.ts
++++ b/src/core/webview/ClineProvider.ts
+@@ -85,6 +85,10 @@ import { CodeIndexManager } from "../../services/code-index/manager"
+ import type { IndexProgressUpdate } from "../../services/code-index/interfaces/manager"
+ import { MdmService } from "../../services/mdm/MdmService"
+ import { SkillsManager } from "../../services/skills/SkillsManager"
++import { UsageStatsService } from "../../services/stats"
++import type { StatsStreamSink } from "../../services/stats"
++import { buildCustomPricingMap } from "./usageStatsMessageHandler"
++import { DashboardTaskCatalog } from "../../services/stats/DashboardTaskCatalog"
+ 
+ import { fileExistsAtPath } from "../../utils/fs"
+ import { setTtsEnabled, setTtsSpeed } from "../../utils/tts"
+@@ -183,6 +187,8 @@ export class ClineProvider
+ 	private _workspaceTracker?: WorkspaceTracker // workSpaceTracker read-only for access outside this class
+ 	protected mcpHub?: McpHub // Change from private to protected
+ 	protected skillsManager?: SkillsManager
++	private usageStatsService?: UsageStatsService
++	private readonly dashboardTaskCatalog: DashboardTaskCatalog
+ 	private marketplaceManager: MarketplaceManager
+ 	private mdmService?: MdmService
+ 	private taskCreationCallback: (task: Task) => void
+@@ -303,6 +309,7 @@ export class ClineProvider
+ 				this.scheduleGlobalStateWriteThrough()
+ 			},
+ 		})
++		this.dashboardTaskCatalog = new DashboardTaskCatalog(this.taskHistoryStore)
+ 		this.initializeTaskHistoryStore().catch((error) => {
+ 			this.log(`Failed to initialize TaskHistoryStore: ${error}`)
+ 		})
+@@ -338,6 +345,37 @@ export class ClineProvider
+ 			this.log(`Failed to initialize Skills Manager: ${error}`)
+ 		})
+ 
++		// Initialize Usage Stats Service for local token usage tracking.
++		// Initialization failure is non-fatal — the service becomes unavailable
++		// and stats handlers return "service unavailable" errors gracefully.
++		try {
++			const globalStoragePath = this.contextProxy.globalStorageUri.fsPath
++			// Provide a query-time custom model pricing provider so the dashboard
++			// can resolve pricing for custom/user-configured models (e.g. OpenAI
++			// Compatible) without relying on capture-time persistence in Task.ts.
++			const customPricingProvider = () => buildCustomPricingMap(this.contextProxy)
++			this.usageStatsService = new UsageStatsService(
++				globalStoragePath,
++				this.dashboardTaskCatalog,
++				customPricingProvider,
++			)
++			this.usageStatsService.initialize().catch((error) => {
++				this.log(`Failed to initialize Usage Stats Service: ${error}`)
++				this.usageStatsService = undefined
++			})
++
++			// Subscribe to cross-window file changes so this window's dashboard
++			// refreshes when another VS Code window records new usage events.
++			this.usageStatsService.onDidChange(() => {
++				this.postMessageToWebview({ type: "usageStatsChanged" }).catch(() => {
++					// View disposed, drop message silently
++				})
++			})
++		} catch (error) {
++			this.log(`Failed to create Usage Stats Service: ${error}`)
++			this.usageStatsService = undefined
++		}
++
+ 		this.marketplaceManager = new MarketplaceManager(this.context, this.customModesManager)
+ 
+ 		// Forward <most> task events to the provider.
+@@ -732,6 +770,14 @@ export class ClineProvider
+ 	- https://github.com/microsoft/vscode-extension-samples/blob/main/webview-sample/src/extension.ts
+ 	*/
+ 	private clearWebviewResources() {
++		// Release the dashboard stats stream subscription held on behalf of this
++		// webview, so a dead webview stops receiving coordinator drains.
++		const streamSink = (this as unknown as { _streamSink?: StatsStreamSink })._streamSink
++		if (streamSink) {
++			this.getUsageStatsService()?.getCoordinator()?.unsubscribe(streamSink)
++			;(this as unknown as { _streamSink?: StatsStreamSink })._streamSink = undefined
++		}
++
+ 		while (this.webviewDisposables.length) {
+ 			const x = this.webviewDisposables.pop()
+ 			if (x) {
+@@ -796,6 +842,8 @@ export class ClineProvider
+ 		this.skillsManager = undefined
+ 		await this.marketplaceManager?.cleanup()
+ 		this.customModesManager?.dispose()
++		this.usageStatsService?.dispose()
++		this.dashboardTaskCatalog.dispose()
+ 		this.taskHistoryStore.dispose()
+ 		this.flushGlobalStateWriteThrough()
+ 		this.log("Disposed all disposables")
+@@ -3087,6 +3135,14 @@ export class ClineProvider
+ 		return this.skillsManager
+ 	}
+ 
++	/**
++	 * Returns the UsageStatsService instance, or undefined if initialization failed.
++	 * The service provides local token usage statistics: query, export, clear.
++	 */
++	public getUsageStatsService(): UsageStatsService | undefined {
++		return this.usageStatsService
++	}
++
+ 	/**
+ 	 * Check if the current state is compliant with MDM policy
+ 	 * @returns true if compliant or no MDM policy exists, false if MDM policy exists and user is non-compliant
