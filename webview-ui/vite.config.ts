@@ -83,7 +83,19 @@ export default defineConfig(({ mode }) => {
 	return {
 		plugins,
 		resolve: {
-			tsconfigPaths: true,
+			// NOTE (debug 260903): `tsconfigPaths: true` is unusable in this workspace —
+			// rolldown 1.1.3 cannot resolve package-name tsconfig `extends`
+			// (`@roo-code/config-typescript/base.json`) and fails the build with
+			// "Tsconfig not found". Alias fallbacks without per-specifier canonical
+			// resolution also allowed the singleton module `src/utils/vscode.ts` to be
+			// bundled twice (double acquireVsCodeApi → webview black screen). Explicit
+			// aliases give every module exactly one canonical resolution. Keep in sync
+			// with `tsconfig.json` compilerOptions.paths.
+			alias: {
+				"@": path.resolve(__dirname, "src"),
+				"@src": path.resolve(__dirname, "src"),
+				"@roo": path.resolve(__dirname, "..", "src", "shared"),
+			},
 		},
 		build: {
 			outDir,
