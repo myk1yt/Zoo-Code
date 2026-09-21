@@ -842,7 +842,7 @@ describe("Dashboard Stats Performance (ST-1: Rollup-backed Read Path)", () => {
 			db.append(event)
 
 			const query = makeQuery({ groupBy: ["day"] })
-			const delta = applyEventToProjection(db, event, query, "req-001", 30, 1, 1)
+			const delta = applyEventToProjection(db, event, query, "req-001", 30, 1, 1, 0)
 
 			expect(delta.sessionUpsert.length).toBeGreaterThanOrEqual(1)
 			const upsert = delta.sessionUpsert.find((s) => s.rootTaskId === "task-direct")
@@ -881,7 +881,7 @@ describe("Dashboard Stats Performance (ST-1: Rollup-backed Read Path)", () => {
 			db.append(targetEvent)
 
 			const query = makeQuery({ groupBy: ["day"] })
-			const delta = applyEventToProjection(db, targetEvent, query, "req-001", 30, 1, 201)
+			const delta = applyEventToProjection(db, targetEvent, query, "req-001", 30, 1, 201, 200)
 
 			// The old querySessions(100).find(...) would NOT find "task-target"
 			// because it's beyond the first 100 results.

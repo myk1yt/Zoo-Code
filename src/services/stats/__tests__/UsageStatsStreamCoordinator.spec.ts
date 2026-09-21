@@ -523,6 +523,104 @@ describe("UsageStatsStreamCoordinator", () => {
 		})
 	})
 
+	describe("afterSequence anchoring", () => {
+		it("anchors afterSequence to the subscriber cursor across a multi-event drain", () => {
+			const coordinator = new UsageStatsStreamCoordinator(db)
+			const sink = new MockSink()
+
+			// Three events committed before subscribe: snapshot anchors the
+			// subscriber's through-sequence at 3.
+			db.append(makeEvent())
+			db.append(makeEvent())
+			db.append(makeEvent())
+			coordinator.subscribe(sink, makeSubscription())
+			sink.messages.length = 0
+
+			db.append(makeEvent())
+			db.append(makeEvent())
+			coordinator.notifyEventAppended(makeEvent())
+
+			vi.advanceTimersByTime(100)
+
+			const deltas = sink.messagesOfType("dashboardStatsStreamDelta")
+			expect(deltas).toHaveLength(2)
+			expect(deltas[0].dashboardStatsStreamDelta?.sequence).toBe(4)
+			expect(deltas[0].dashboardStatsStreamDelta?.afterSequence).toBe(3)
+			expect(deltas[1].dashboardStatsStreamDelta?.sequence).toBe(5)
+			expect(deltas[1].dashboardStatsStreamDelta?.afterSequence).toBe(4)
+
+			coordinator.dispose()
+		})
+
+		it("advances the running cursor across zero deltas so the next delta stays contiguous", () => {
+			const coordinator = new UsageStatsStreamCoordinator(db)
+			const sink = new MockSink()
+
+			// Range starts 60s in the future: the first event is filtered out
+			// (zero delta), the second contributes.
+			const range = makeQuery({ from: new Date(Date.now() + 60_000).toISOString() })
+			coordinator.subscribe(sink, makeSubscription({ range }))
+			sink.messages.length = 0
+
+			const filtered = makeEvent({ occurredAt: new Date().toISOString() })
+			db.append(filtered)
+			coordinator.notifyEventAppended(filtered)
+
+			const contributing = makeEvent({ occurredAt: new Date(Date.now() + 120_000).toISOString() })
+			db.append(contributing)
+			coordinator.notifyEventAppended(contributing)
+
+			vi.advanceTimersByTime(100)
+
+			const deltas = sink.messagesOfType("dashboardStatsStreamDelta")
+			expect(deltas).toHaveLength(2)
+			// Zero delta for the filtered event, anchored at the cursor (0).
+			expect(deltas[0].dashboardStatsStreamDelta?.totalDelta.events).toBe(0)
+			expect(deltas[0].dashboardStatsStreamDelta?.sequence).toBe(1)
+			expect(deltas[0].dashboardStatsStreamDelta?.afterSequence).toBe(0)
+			// The contributing delta must continue from the zero delta's
+			// sequence — skipping the no-op event would read as a gap.
+			expect(deltas[1].dashboardStatsStreamDelta?.totalDelta.events).toBe(1)
+			expect(deltas[1].dashboardStatsStreamDelta?.sequence).toBe(2)
+			expect(deltas[1].dashboardStatsStreamDelta?.afterSequence).toBe(1)
+
+			coordinator.dispose()
+		})
+
+		it("threads the running cursor when store sequences skip values", () => {
+			const coordinator = new UsageStatsStreamCoordinator(db)
+			const sink = new MockSink()
+
+			// Subscriber cursor lands at 4.
+			for (let i = 0; i < 4; i++) {
+				db.append(makeEvent())
+			}
+			coordinator.subscribe(sink, makeSubscription())
+			sink.messages.length = 0
+
+			// Simulate retention deleting rows: the next unseen sequences are
+			// 5 and 10. afterSequence must follow the running cursor (5 after
+			// the first delta), not sequence arithmetic (which would say 9).
+			const seqGapEvents = [
+				{ ...makeEvent(), sequence: 5 },
+				{ ...makeEvent(), sequence: 10 },
+			]
+			vi.spyOn(db, "readEventsAfter").mockReturnValue({ events: seqGapEvents, hasMore: false })
+
+			coordinator.notifyEventAppended(makeEvent())
+			vi.advanceTimersByTime(100)
+
+			const deltas = sink.messagesOfType("dashboardStatsStreamDelta")
+			expect(deltas).toHaveLength(2)
+			expect(deltas[0].dashboardStatsStreamDelta?.sequence).toBe(5)
+			expect(deltas[0].dashboardStatsStreamDelta?.afterSequence).toBe(4)
+			expect(deltas[1].dashboardStatsStreamDelta?.sequence).toBe(10)
+			expect(deltas[1].dashboardStatsStreamDelta?.afterSequence).toBe(5)
+
+			coordinator.dispose()
+		})
+	})
+
 	describe("max batch / size limits", () => {
 		it("should limit each drain batch to MAX_BATCH_EVENTS (100)", () => {
 			const coordinator = new UsageStatsStreamCoordinator(db)

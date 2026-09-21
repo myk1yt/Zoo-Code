@@ -546,7 +546,7 @@ describe("UsageStatsProjection", () => {
 			db.append(event)
 
 			const query = makeQuery({ groupBy: ["day"] })
-			const delta = applyEventToProjection(db, event, query, "req-001", 30, 1, 1)
+			const delta = applyEventToProjection(db, event, query, "req-001", 30, 1, 1, 0)
 
 			expect(delta.requestId).toBe("req-001")
 			expect(delta.generation).toBe(1)
@@ -569,7 +569,7 @@ describe("UsageStatsProjection", () => {
 				to: "2026-07-31T00:00:00.000Z",
 				groupBy: ["day"],
 			})
-			const delta = applyEventToProjection(db, event, query, "req-001", 30, 1, 1)
+			const delta = applyEventToProjection(db, event, query, "req-001", 30, 1, 1, 0)
 
 			expect(delta.totalDelta.events).toBe(0)
 			expect(delta.totalDelta.inputTokens).toBe(0)
@@ -586,9 +586,40 @@ describe("UsageStatsProjection", () => {
 			db.append(event)
 
 			const query = makeQuery({ groupBy: ["day"], includeCancelled: false })
-			const delta = applyEventToProjection(db, event, query, "req-001", 30, 1, 1)
+			const delta = applyEventToProjection(db, event, query, "req-001", 30, 1, 1, 0)
 
 			expect(delta.totalDelta.events).toBe(0)
+		})
+
+		it("should stamp the passed afterSequence on contributing and zero deltas", () => {
+			const event = makeEvent({
+				eventId: "evt-1",
+				idempotencyKey: "idem-1",
+				occurredAt: new Date().toISOString(),
+				usage: {
+					inputTokens: { value: 1000, source: "provider" },
+					outputTokens: { value: 500, source: "provider" },
+					costUsd: { value: 0.01, source: "provider" },
+				},
+			})
+			db.append(event)
+
+			const query = makeQuery({ groupBy: ["day"] })
+			const delta = applyEventToProjection(db, event, query, "req-001", 30, 1, 5, 4)
+			expect(delta.sequence).toBe(5)
+			expect(delta.afterSequence).toBe(4)
+
+			// The zero-delta path must carry the same pre-event through-sequence:
+			// it exists to advance the consumer's cursor past a filtered event.
+			const filteredQuery = makeQuery({
+				from: "2026-01-01T00:00:00.000Z",
+				to: "2026-01-31T00:00:00.000Z",
+				groupBy: ["day"],
+			})
+			const zeroDelta = applyEventToProjection(db, event, filteredQuery, "req-001", 30, 1, 6, 5)
+			expect(zeroDelta.totalDelta.events).toBe(0)
+			expect(zeroDelta.sequence).toBe(6)
+			expect(zeroDelta.afterSequence).toBe(5)
 		})
 
 		it("should compute breakdown deltas for each group key", () => {
@@ -607,7 +638,7 @@ describe("UsageStatsProjection", () => {
 			db.append(event)
 
 			const query = makeQuery({ groupBy: ["day", "provider"] })
-			const delta = applyEventToProjection(db, event, query, "req-001", 30, 1, 1)
+			const delta = applyEventToProjection(db, event, query, "req-001", 30, 1, 1, 0)
 
 			expect(delta.breakdownDelta.length).toBeGreaterThanOrEqual(1)
 			for (const bd of delta.breakdownDelta) {
@@ -631,7 +662,7 @@ describe("UsageStatsProjection", () => {
 			db.append(event)
 
 			const query = makeQuery({ groupBy: ["day"] })
-			const delta = applyEventToProjection(db, event, query, "req-001", 30, 1, 1)
+			const delta = applyEventToProjection(db, event, query, "req-001", 30, 1, 1, 0)
 
 			expect(delta.heatmapDayDelta).toBeDefined()
 			expect(delta.heatmapDayDelta!.dayIndex).toBeGreaterThanOrEqual(0)
@@ -653,7 +684,7 @@ describe("UsageStatsProjection", () => {
 			db.append(event)
 
 			const query = makeQuery({ preset: "all", groupBy: ["day"] })
-			const delta = applyEventToProjection(db, event, query, "req-001", 30, 1, 1)
+			const delta = applyEventToProjection(db, event, query, "req-001", 30, 1, 1, 0)
 
 			expect(delta.heatmapDayDelta).toBeUndefined()
 		})
@@ -674,7 +705,7 @@ describe("UsageStatsProjection", () => {
 			db.append(event)
 
 			const query = makeQuery({ groupBy: ["day"] })
-			const delta = applyEventToProjection(db, event, query, "req-001", 30, 1, 1)
+			const delta = applyEventToProjection(db, event, query, "req-001", 30, 1, 1, 0)
 
 			expect(delta.sessionUpsert.length).toBeGreaterThanOrEqual(1)
 			const upsert = delta.sessionUpsert.find((s) => s.rootTaskId === "task-A")
@@ -697,7 +728,7 @@ describe("UsageStatsProjection", () => {
 			db.append(event)
 
 			const query = makeQuery({ groupBy: ["day"] })
-			const delta = applyEventToProjection(db, event, query, "req-001", 30, 1, 1)
+			const delta = applyEventToProjection(db, event, query, "req-001", 30, 1, 1, 0)
 
 			// Anthropic claude-sonnet-4: $3/1M input, $15/1M output
 			// 1000 * 3/1M + 500 * 15/1M = 0.003 + 0.0075 = 0.0105
@@ -825,7 +856,7 @@ describe("UsageStatsProjection", () => {
 			db.close()
 
 			expect(() =>
-				applyEventToProjection(db, event, makeQuery({ groupBy: ["day"] }), "req-001", 30, 1, 1),
+				applyEventToProjection(db, event, makeQuery({ groupBy: ["day"] }), "req-001", 30, 1, 1, 0),
 			).toThrow(StatsProjError)
 		})
 	})

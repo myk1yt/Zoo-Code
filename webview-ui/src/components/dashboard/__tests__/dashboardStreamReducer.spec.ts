@@ -139,6 +139,7 @@ function makeDelta(overrides: Partial<DashboardTaskStatsDelta> = {}): DashboardT
 		requestId: "sub-001",
 		generation: 1,
 		sequence: 101,
+		afterSequence: 100,
 		totalDelta: makeBucketDelta(),
 		breakdownDelta: [makeBucketDelta()],
 		heatmapDayDelta: { dayIndex: 29, delta: 0.01 },
@@ -443,17 +444,17 @@ describe("dashboardStreamReducer", () => {
 			expect(newState).toBe(state) // No change
 		})
 
-		it("should ignore duplicate sequence (sequence <= local)", () => {
+		it("should ignore a stale delta replaying an already-applied region (afterSequence < local)", () => {
 			const state = connectedState({ sequence: 100 })
-			const delta = makeDelta({ sequence: 100 }) // Same sequence
+			const delta = makeDelta({ sequence: 100, afterSequence: 99 })
 			const newState = dashboardStreamReducer(state, { type: "DELTA", delta })
 
 			expect(newState).toBe(state) // No change
 		})
 
-		it("should ignore delta with sequence less than local", () => {
+		it("should ignore an older delta with both sequences below local", () => {
 			const state = connectedState({ sequence: 100 })
-			const delta = makeDelta({ sequence: 99 })
+			const delta = makeDelta({ sequence: 99, afterSequence: 98 })
 			const newState = dashboardStreamReducer(state, { type: "DELTA", delta })
 
 			expect(newState).toBe(state) // No change
@@ -469,25 +470,41 @@ describe("dashboardStreamReducer", () => {
 			expect(newState.totals).toBe(state.totals)
 		})
 
-		it("should apply a gapped delta but set pendingResync for a snapshot resync", () => {
+		it("should not apply a gapped delta (afterSequence > local) and set pendingResync", () => {
 			const state = connectedState({ sequence: 100 })
-			// Sequences 101 and 102 were skipped or lost in dense delivery.
-			const delta = makeDelta({ sequence: 103 })
+			// The host believes the local through-sequence is 101, but the
+			// reducer is still at 100 — delta 101 was lost in delivery.
+			const delta = makeDelta({ sequence: 103, afterSequence: 101 })
 			const newState = dashboardStreamReducer(state, { type: "DELTA", delta })
 
-			expect(newState.sequence).toBe(103)
 			expect(newState.pendingResync).toBe(true)
-			// The arrived delta is still applied so the UI stays responsive.
-			expect(newState.totals!.events).toBe(11)
+			// The gapped delta is NOT applied; the missing increments cannot
+			// be recovered from deltas alone, so the UI keeps its last known
+			// good state until the resync snapshot arrives.
+			expect(newState.sequence).toBe(100)
+			expect(newState.totals).toBe(state.totals)
 		})
 
-		it("should not set pendingResync for the next in-order delta", () => {
+		it("should apply a contiguous delta when afterSequence equals the local through-sequence", () => {
 			const state = connectedState({ sequence: 100 })
-			const delta = makeDelta({ sequence: 101 })
+			const delta = makeDelta({ sequence: 101, afterSequence: 100 })
 			const newState = dashboardStreamReducer(state, { type: "DELTA", delta })
 
 			expect(newState.sequence).toBe(101)
 			expect(newState.pendingResync).toBe(false)
+			expect(newState.totals!.events).toBe(11)
+		})
+
+		it("should apply a multi-event delta without resync when afterSequence equals local", () => {
+			const state = connectedState({ sequence: 100 })
+			// One delta folding three events (101–103). sequence > local + 1
+			// is legitimate here; afterSequence is the contiguity proof.
+			const delta = makeDelta({ sequence: 103, afterSequence: 100 })
+			const newState = dashboardStreamReducer(state, { type: "DELTA", delta })
+
+			expect(newState.sequence).toBe(103)
+			expect(newState.pendingResync).toBe(false)
+			expect(newState.totals!.events).toBe(11)
 		})
 
 		it("should ignore deltas while pendingResync is true", () => {
@@ -515,7 +532,7 @@ describe("dashboardStreamReducer", () => {
 			expect(state.sequence).toBe(150)
 
 			// Now delta should be accepted
-			const delta = makeDelta({ generation: 2, sequence: 151 })
+			const delta = makeDelta({ generation: 2, sequence: 151, afterSequence: 150 })
 			const newState = dashboardStreamReducer(state, { type: "DELTA", delta })
 
 			expect(newState.sequence).toBe(151)
@@ -774,7 +791,7 @@ describe("dashboardStreamReducer", () => {
 			expect(state.totals!.events).toBe(11)
 
 			// Delta 2
-			state = dashboardStreamReducer(state, { type: "DELTA", delta: makeDelta({ sequence: 102 }) })
+			state = dashboardStreamReducer(state, { type: "DELTA", delta: makeDelta({ sequence: 102, afterSequence: 101 }) })
 			expect(state.sequence).toBe(102)
 			expect(state.totals!.events).toBe(12)
 
@@ -797,7 +814,10 @@ describe("dashboardStreamReducer", () => {
 			expect(state.totals!.events).toBe(10) // Reset by snapshot
 
 			// Delta after resync
-			state = dashboardStreamReducer(state, { type: "DELTA", delta: makeDelta({ generation: 2, sequence: 201 }) })
+			state = dashboardStreamReducer(state, {
+				type: "DELTA",
+				delta: makeDelta({ generation: 2, sequence: 201, afterSequence: 200 }),
+			})
 			expect(state.sequence).toBe(201)
 			expect(state.totals!.events).toBe(11)
 		})

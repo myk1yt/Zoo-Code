@@ -114,6 +114,7 @@ function makeDelta(overrides: Partial<DashboardTaskStatsDelta> = {}): DashboardT
 		requestId: "test-sub",
 		generation: 1,
 		sequence: 101,
+		afterSequence: 100,
 		totalDelta: {
 			key: {},
 			events: 1,
@@ -521,10 +522,10 @@ describe("useDashboardStatsStream", () => {
 				dashboardStatsStreamSnapshot: makeSnapshot({ requestId: subId, sequence: 100 }),
 			})
 
-			// Duplicate sequence
+			// Stale duplicate: replays an already-applied region
 			postExtensionMessage({
 				type: "dashboardStatsStreamDelta",
-				dashboardStatsStreamDelta: makeDelta({ requestId: subId, sequence: 100 }),
+				dashboardStatsStreamDelta: makeDelta({ requestId: subId, sequence: 100, afterSequence: 99 }),
 			})
 			expect(result.current.state.sequence).toBe(100) // Unchanged
 			expect(result.current.state.totals!.events).toBe(10) // Unchanged

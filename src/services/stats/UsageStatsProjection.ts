@@ -959,6 +959,8 @@ export function computeHeatmapSnapshot(db: UsageStatsDatabase, rangeDays: number
  * @param heatmapRangeDays Number of days for the heatmap
  * @param generation Current store generation
  * @param sequence Sequence number of the event
+ * @param afterSequence Subscriber's local through-sequence before this delta
+ *   (the reducer applies a delta only when this equals its own through-sequence)
  * @param customPricing Optional query-time pricing map for custom models
  * @param timeRange Optional pre-resolved query time range; pass it when
  *   applying many events for one query so the range is not re-resolved
@@ -972,6 +974,7 @@ export function applyEventToProjection(
 	heatmapRangeDays: number,
 	generation: number,
 	sequence: number,
+	afterSequence: number,
 	customPricing?: CustomModelPricingMap,
 	timeRange?: { from?: Date; to?: Date },
 ): DashboardStatsDelta {
@@ -979,12 +982,16 @@ export function applyEventToProjection(
 		// 1. Compute the total delta (pure function, checks query filter)
 		const totalContribution = computeEventContribution(event, query, customPricing, timeRange)
 
-		// If the event doesn't match the query filter, return a zero delta
+		// If the event doesn't match the query filter, return a zero delta.
+		// The no-op delta still advances the consumer's through-sequence to
+		// `sequence`: skipping it would leave the consumer behind the host
+		// cursor, so the next delta's afterSequence would read as a gap.
 		if (totalContribution === null) {
 			return {
 				requestId,
 				generation,
 				sequence,
+				afterSequence,
 				totalDelta: toBucketDelta({}, zeroDelta()),
 				breakdownDelta: [],
 				heatmapDayDelta: undefined,
@@ -1030,6 +1037,7 @@ export function applyEventToProjection(
 			requestId,
 			generation,
 			sequence,
+			afterSequence,
 			totalDelta: toBucketDelta({}, totalContribution),
 			breakdownDelta,
 			heatmapDayDelta,

@@ -327,7 +327,11 @@ export function dashboardStreamReducer(
 		//   - pendingResync is true (waiting for snapshot)
 		//   - requestId doesn't match (stale epoch)
 		//   - generation doesn't match (generation mismatch → set pendingResync)
-		//   - sequence <= local (duplicate → ignore)
+		//   - afterSequence > local through-sequence (gap → set pendingResync, don't apply)
+		//   - afterSequence < local through-sequence (stale/duplicate → ignore)
+		// afterSequence === local through-sequence is the authoritative
+		// contiguity check: a multi-event delta legitimately carries
+		// sequence > local + 1.
 		case "DELTA": {
 			// Ignore deltas while waiting for resync snapshot
 			if (state.pendingResync) {
@@ -344,16 +348,17 @@ export function dashboardStreamReducer(
 				return { ...state, pendingResync: true }
 			}
 
-			// Duplicate sequence → ignore
-			if (action.delta.sequence <= state.sequence) {
+			// afterSequence is the host's record of this reducer's expected
+			// through-sequence. Greater means deltas were lost in delivery —
+			// do NOT apply; the missing increments cannot be recovered from
+			// deltas alone, so resync from a snapshot. Lesser means the delta
+			// replays an already-applied region (stale/duplicate) → ignore.
+			if (action.delta.afterSequence > state.sequence) {
+				return { ...state, pendingResync: true }
+			}
+			if (action.delta.afterSequence < state.sequence) {
 				return state
 			}
-
-			// Sequence gap: at least one delta was skipped or lost in dense
-			// delivery. Apply what arrived so the UI stays responsive, but
-			// mark the stream for a snapshot resync — the missing increments
-			// cannot be recovered from deltas alone.
-			const hasSequenceGap = action.delta.sequence > state.sequence + 1
 
 			const delta = action.delta
 
@@ -410,7 +415,6 @@ export function dashboardStreamReducer(
 				...state,
 				status: "connected",
 				sequence: delta.sequence,
-				pendingResync: hasSequenceGap ? true : state.pendingResync,
 				totals: newTotals,
 				buckets: newBuckets,
 				heatmapValues: newHeatmapValues,

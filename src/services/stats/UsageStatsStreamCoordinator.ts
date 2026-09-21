@@ -508,6 +508,13 @@ export class UsageStatsStreamCoordinator {
 				const taskRangeMs = this.taskCatalog ? resolveStatsQueryRangeMs(sub.subscription.range) : undefined
 				const customPricing = this.customPricingProvider?.()
 				let snapshotFallback = false
+				// Deltas are applied only when afterSequence equals the subscriber's
+				// local through-sequence, so thread the running cursor rather than
+				// deriving it from sequence arithmetic: unseen events form a
+				// contiguous suffix for this subscriber, but the store's seq column
+				// itself can skip values after row deletions, where sequence - 1
+				// would no longer equal the cursor.
+				let cursor = sub.lastSequence
 				for (const event of unseenEvents) {
 					try {
 						const legacyDelta = applyEventToProjection(
@@ -518,9 +525,11 @@ export class UsageStatsStreamCoordinator {
 							sub.subscription.heatmapRangeDays,
 							sub.generation,
 							event.sequence,
+							cursor,
 							customPricing,
 							timeRange,
 						)
+						cursor = event.sequence
 						if (this.taskCatalog) {
 							const ancestorTaskIds = this.taskCatalog.ancestorsByTaskId.get(event.taskId) ?? []
 							const affectedTaskIds = [
