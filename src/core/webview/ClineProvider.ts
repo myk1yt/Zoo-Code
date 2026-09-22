@@ -96,7 +96,8 @@ import { CodeIndexManagerRegistry } from "../../services/code-index/code-index-m
 import type { IndexProgressUpdate } from "../../services/code-index/interfaces/manager"
 import { MdmService } from "../../services/mdm/MdmService"
 import { SkillsManager } from "../../services/skills/SkillsManager"
-
+import { UsageStatsService } from "../../services/stats"
+import type { StatsStreamSink } from "../../services/stats"
 import { fileExistsAtPath } from "../../utils/fs"
 import { setTtsEnabled, setTtsSpeed } from "../../utils/tts"
 import { getWorkspaceGitInfo } from "../../utils/git"
@@ -223,6 +224,9 @@ export class ClineProvider
 	private _workspaceTracker?: WorkspaceTracker // workSpaceTracker read-only for access outside this class
 	protected mcpHub?: McpHub // Change from private to protected
 	protected skillsManager?: SkillsManager
+	private usageStatsService?: UsageStatsService
+	/** Dashboard stats stream subscription sink held on behalf of the webview. */
+	private statsStreamSink?: StatsStreamSink
 	private marketplaceManager: MarketplaceManager
 	private mdmService?: MdmService
 	private taskCreationCallback: (task: Task) => void
@@ -899,6 +903,15 @@ export class ClineProvider
 		// Invalidate any recovery reload still awaiting its HTML so it cannot
 		// reassign webview.html on the disposed view.
 		this.webviewRecoveryEpoch++
+
+		// Release the dashboard stats stream subscription held on behalf of this
+		// webview, so a dead webview stops receiving coordinator drains.
+		const streamSink = this.getStatsStreamSink()
+		if (streamSink) {
+			this.getUsageStatsService()?.getCoordinator()?.unsubscribe(streamSink)
+			this.setStatsStreamSink(undefined)
+		}
+
 		while (this.webviewDisposables.length) {
 			const x = this.webviewDisposables.pop()
 			if (x) {
@@ -980,6 +993,8 @@ export class ClineProvider
 		this.skillsManager = undefined
 		await this.marketplaceManager?.cleanup()
 		this.customModesManager?.dispose()
+		this.usageStatsService?.dispose()
+		this.usageStatsService = undefined
 		this.taskHistoryStore.dispose()
 		this.flushGlobalStateWriteThrough()
 		this.log("Disposed all disposables")
@@ -3431,6 +3446,38 @@ export class ClineProvider
 
 	public getSkillsManager(): SkillsManager | undefined {
 		return this.skillsManager
+	}
+
+	public getTaskHistoryStore(): TaskHistoryStore {
+		return this.taskHistoryStore
+	}
+
+	public setUsageStatsService(service: UsageStatsService | undefined): void {
+		this.usageStatsService = service
+	}
+
+	/**
+	 * Returns the UsageStatsService instance, or undefined if initialization failed.
+	 * The service provides local token usage statistics: query, export, clear.
+	 */
+	public getUsageStatsService(): UsageStatsService | undefined {
+		return this.usageStatsService
+	}
+
+	/**
+	 * Returns the dashboard stats stream sink subscribed on behalf of this
+	 * provider's webview, if any.
+	 */
+	public getStatsStreamSink(): StatsStreamSink | undefined {
+		return this.statsStreamSink
+	}
+
+	/**
+	 * Sets (or clears) the dashboard stats stream sink subscribed on behalf of
+	 * this provider's webview.
+	 */
+	public setStatsStreamSink(sink: StatsStreamSink | undefined): void {
+		this.statsStreamSink = sink
 	}
 
 	/**
