@@ -1,8 +1,16 @@
 // npx vitest run src/api/transform/__tests__/gemini-format.spec.ts
 
 import { Anthropic } from "@anthropic-ai/sdk"
+import type { Part } from "@google/genai"
 
-import { convertAnthropicMessageToGemini } from "../gemini-format"
+import { convertAnthropicContentToGemini, convertAnthropicMessageToGemini } from "../gemini-format"
+
+// Mirrors the non-exported `PartWithThoughtSignature` intersection in gemini-format.ts.
+// Production attaches `thoughtSignature` to returned Parts, but the upstream @google/genai
+// `Part` type does not declare it, so specs read it through this typed double.
+type PartWithThoughtSignature = Part & {
+	thoughtSignature?: string
+}
 
 describe("convertAnthropicMessageToGemini", () => {
 	it("should convert a simple text message", () => {
@@ -96,10 +104,11 @@ describe("convertAnthropicMessageToGemini", () => {
 			content: [
 				{
 					type: "image",
+					// URLImageSource is a valid SDK source type but unsupported by the converter at runtime.
 					source: {
-						type: "url", // Not supported
+						type: "url",
 						url: "https://example.com/image.jpg",
-					} as any,
+					},
 				},
 			],
 		}
@@ -146,24 +155,22 @@ describe("convertAnthropicMessageToGemini", () => {
 	})
 
 	it("should only attach thoughtSignature to the first functionCall in the message", () => {
-		const anthropicMessage: Anthropic.Messages.MessageParam = {
-			role: "assistant",
-			content: [
-				{ type: "thoughtSignature", thoughtSignature: "sig-123" } as any,
-				{ type: "tool_use", id: "call-1", name: "toolA", input: { a: 1 } },
-				{ type: "tool_use", id: "call-2", name: "toolB", input: { b: 2 } },
-			],
-		}
+		// `convertAnthropicContentToGemini` accepts the same extended content blocks the
+		// message-level wrapper forwards, including thoughtSignature blocks, without casting.
+		const parts = convertAnthropicContentToGemini([
+			{ type: "thoughtSignature", thoughtSignature: "sig-123" },
+			{ type: "tool_use", id: "call-1", name: "toolA", input: { a: 1 } },
+			{ type: "tool_use", id: "call-2", name: "toolB", input: { b: 2 } },
+		]) as PartWithThoughtSignature[]
 
-		const result = convertAnthropicMessageToGemini(anthropicMessage)
-		expect(result).toHaveLength(1)
+		// The thoughtSignature block itself produces no part; only the two function calls remain.
+		expect(parts).toHaveLength(2)
 
-		const parts = result[0]!.parts as any[]
 		const functionCallParts = parts.filter((p) => p.functionCall)
 		expect(functionCallParts).toHaveLength(2)
 
-		expect(functionCallParts[0].thoughtSignature).toBe("sig-123")
-		expect(functionCallParts[1].thoughtSignature).toBeUndefined()
+		expect(functionCallParts[0]!.thoughtSignature).toBe("sig-123")
+		expect(functionCallParts[1]!.thoughtSignature).toBeUndefined()
 	})
 
 	it("should convert a message with tool result as string", () => {
@@ -240,7 +247,10 @@ describe("convertAnthropicMessageToGemini", () => {
 				{
 					type: "tool_result",
 					tool_use_id: "calculator-123",
-					content: null as any,
+					// Last resort: null is outside the SDK union for `content`, but can appear in
+					// persisted history; the converter must handle it defensively. No typed
+					// alternative exists because the union legitimately excludes null.
+					content: null as unknown as Anthropic.Messages.ToolResultBlockParam["content"],
 				},
 			],
 		}
@@ -613,10 +623,10 @@ describe("convertAnthropicMessageToGemini", () => {
 		const anthropicMessage: Anthropic.Messages.MessageParam = {
 			role: "user",
 			content: [
-				{
-					type: "unknown_type", // Unsupported type
-					data: "some data",
-				} as any,
+				// Last resort: blocks from other providers can carry types outside the SDK union.
+				// No typed double can represent "none of the known variants", so the double
+				// assertion is documented here as the boundary for the defensive skip path.
+				{ type: "unknown_type", data: "some data" } as unknown as Anthropic.ContentBlockParam,
 				{ type: "text", text: "Valid content" },
 			],
 		}
@@ -632,24 +642,16 @@ describe("convertAnthropicMessageToGemini", () => {
 	})
 
 	it("should skip reasoning content blocks", () => {
-		const anthropicMessage: Anthropic.Messages.MessageParam = {
-			role: "assistant",
-			content: [
-				{
-					type: "reasoning" as any,
-					text: "Let me think about this...",
-				},
-				{ type: "text", text: "Here's my answer" },
-			],
-		}
-
-		const result = convertAnthropicMessageToGemini(anthropicMessage)
-
-		expect(result).toEqual([
+		// `convertAnthropicContentToGemini` accepts the provider-reasoning block type
+		// declared in gemini-format.ts, so this input needs no cast.
+		const parts = convertAnthropicContentToGemini([
 			{
-				role: "model",
-				parts: [{ text: "Here's my answer" }],
+				type: "reasoning",
+				text: "Let me think about this...",
 			},
+			{ type: "text", text: "Here's my answer" },
 		])
+
+		expect(parts).toEqual([{ text: "Here's my answer" }])
 	})
 })
