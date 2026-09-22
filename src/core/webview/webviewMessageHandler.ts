@@ -1134,6 +1134,7 @@ export const webviewMessageHandler = async (
 						[providerIdentifiers.poe]: {},
 						[providerIdentifiers.deepseek]: {},
 						[providerIdentifiers.moonshot]: {},
+						[providerIdentifiers.mimo]: {},
 						[providerIdentifiers.opencodeGo]: {},
 						[providerIdentifiers.kenari]: {},
 						[providerIdentifiers.nanogpt]: {},
@@ -1269,6 +1270,44 @@ export const webviewMessageHandler = async (
 						apiKey: moonshotApiKey,
 						baseUrl: moonshotBaseUrl,
 					},
+				})
+			}
+
+			// MiMo is conditional on apiKey. The baseUrl selects the cluster
+			// (cn/sgp/ams token-plan or pay-as-you-go), so unsaved form values are
+			// honored the same way as DeepSeek/Moonshot above.
+			const mimoApiKey = message?.values?.mimoApiKey ?? apiConfiguration.mimoApiKey
+			const mimoBaseUrl = message?.values?.mimoBaseUrl ?? apiConfiguration.mimoBaseUrl
+
+			if (mimoApiKey) {
+				const mimoOptions = {
+					provider: providerIdentifiers.mimo,
+					apiKey: mimoApiKey,
+					baseUrl: mimoBaseUrl,
+				}
+
+				if (message?.values?.mimoApiKey || message?.values?.mimoBaseUrl) {
+					// A refresh failure (bad key/endpoint) must not abort the
+					// aggregate fetch — surface the normal MiMo failure response
+					// and continue so routerModels is still posted.
+					try {
+						await flushModels(mimoOptions, true)
+					} catch (error) {
+						const errorMessage = error instanceof Error ? error.message : String(error)
+						console.error(`Error refreshing models for ${providerIdentifiers.mimo}:`, error)
+
+						await provider.postMessageToWebview({
+							type: RouterModelsMessageType.singleRouterModelFetchResponse,
+							success: false,
+							error: errorMessage,
+							values: { provider: providerIdentifiers.mimo },
+						})
+					}
+				}
+
+				candidates.push({
+					key: providerIdentifiers.mimo,
+					options: mimoOptions,
 				})
 			}
 
