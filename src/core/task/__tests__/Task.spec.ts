@@ -5715,6 +5715,154 @@ describe("Cline", () => {
 			)
 		})
 	})
+
+	describe("say() stale partial snapshot dedup (issue #1346)", () => {
+		// Streaming reasoning calls say("reasoning", text, undefined, true) on
+		// every delta. If another message is appended while the stream is in
+		// flight, the final write no longer sees the partial snapshot as the
+		// last message and used to append a duplicate entry — the pair rendered
+		// twice in Code mode. These specs pin the backwards-scan merge.
+
+		afterEach(() => {
+			vi.restoreAllMocks()
+		})
+
+		it("merges a final reasoning write into a stranded partial snapshot instead of appending a duplicate", async () => {
+			const task = new Task({
+				provider: mockProvider,
+				apiConfiguration: mockApiConfig,
+				task: "test task",
+				startTask: false,
+			})
+			const saveSpy = vi.spyOn(getTaskTestAccess(task), "saveClineMessages").mockResolvedValue(true)
+
+			// Frozen streaming snapshot, then another message lands mid-stream.
+			await task.say("reasoning", "Let me list the .ps1 files", undefined, true)
+			task.clineMessages.push({
+				ts: Date.now(),
+				type: "say",
+				say: "api_req_started",
+				text: "{}",
+				partial: false,
+			})
+			// The final (complete) write replaces the stranded snapshot in place.
+			await task.say("reasoning", "Let me list the .ps1 files.", undefined, false)
+
+			const reasoningMessages = task.clineMessages.filter((m) => m.type === "say" && m.say === "reasoning")
+			expect(reasoningMessages).toHaveLength(1)
+			expect(reasoningMessages[0].partial).toBe(false)
+			expect(reasoningMessages[0].text).toBe("Let me list the .ps1 files.")
+			// No duplicate entry was appended next to the interleaved message.
+			expect(task.clineMessages).toHaveLength(2)
+			// The completed message is persisted like a normal completion.
+			expect(saveSpy).toHaveBeenCalled()
+		})
+
+		it("keeps streaming partial reasoning deltas into a stranded snapshot instead of starting a duplicate", async () => {
+			const task = new Task({
+				provider: mockProvider,
+				apiConfiguration: mockApiConfig,
+				task: "test task",
+				startTask: false,
+			})
+			vi.spyOn(getTaskTestAccess(task), "saveClineMessages").mockResolvedValue(true)
+
+			await task.say("reasoning", "Thinking ab", undefined, true)
+			// A tool approval ask interrupts the reasoning stream.
+			task.clineMessages.push({
+				ts: Date.now(),
+				type: "ask",
+				ask: "tool",
+				text: "Execute command?",
+				partial: false,
+			})
+			// The next delta extends the stranded snapshot rather than forking a
+			// second partial entry that would render as its own reasoning block.
+			await task.say("reasoning", "Thinking about it", undefined, true)
+
+			const reasoningMessages = task.clineMessages.filter((m) => m.type === "say" && m.say === "reasoning")
+			expect(reasoningMessages).toHaveLength(1)
+			expect(reasoningMessages[0].partial).toBe(true)
+			expect(reasoningMessages[0].text).toBe("Thinking about it")
+			expect(task.clineMessages).toHaveLength(2)
+		})
+
+		it("appends a new partial message when no prefix-related stranded snapshot exists", async () => {
+			const task = new Task({
+				provider: mockProvider,
+				apiConfiguration: mockApiConfig,
+				task: "test task",
+				startTask: false,
+			})
+			vi.spyOn(getTaskTestAccess(task), "saveClineMessages").mockResolvedValue(true)
+
+			// Two genuinely different reasoning segments must not be merged: the
+			// texts are not prefix-related, so the second stream starts fresh.
+			await task.say("reasoning", "Completely different topic", undefined, true)
+			task.clineMessages.push({
+				ts: Date.now(),
+				type: "say",
+				say: "text",
+				text: "interleaved",
+				partial: false,
+			})
+			await task.say("reasoning", "Another unrelated reasoning", undefined, true)
+
+			const reasoningMessages = task.clineMessages.filter((m) => m.type === "say" && m.say === "reasoning")
+			expect(reasoningMessages).toHaveLength(2)
+			expect(reasoningMessages[1].partial).toBe(true)
+			expect(reasoningMessages[1].text).toBe("Another unrelated reasoning")
+		})
+
+		it("appends a complete message when only a completed same-type message exists, even with prefix-related text", async () => {
+			const task = new Task({
+				provider: mockProvider,
+				apiConfiguration: mockApiConfig,
+				task: "test task",
+				startTask: false,
+			})
+			vi.spyOn(getTaskTestAccess(task), "saveClineMessages").mockResolvedValue(true)
+
+			// A finalized reasoning message is not a partial snapshot — the
+			// partial===true boundary must hold even when the new text extends
+			// the old one, so both remain distinct messages.
+			await task.say("reasoning", "First reasoning block.", undefined, false)
+			await task.say("reasoning", "First reasoning block. Second reasoning block.", undefined, false)
+
+			const reasoningMessages = task.clineMessages.filter((m) => m.type === "say" && m.say === "reasoning")
+			expect(reasoningMessages).toHaveLength(2)
+			expect(reasoningMessages[0].text).toBe("First reasoning block.")
+			expect(reasoningMessages[1].text).toBe("First reasoning block. Second reasoning block.")
+			expect(reasoningMessages.every((m) => m.partial === undefined)).toBe(true)
+		})
+
+		it("does not replace a stranded partial snapshot when the new text belongs to a different say value", async () => {
+			const task = new Task({
+				provider: mockProvider,
+				apiConfiguration: mockApiConfig,
+				task: "test task",
+				startTask: false,
+			})
+			vi.spyOn(getTaskTestAccess(task), "saveClineMessages").mockResolvedValue(true)
+
+			// Stranded reasoning snapshot…
+			await task.say("reasoning", "Shared prefix text", undefined, true)
+			// …followed by a completion_result whose text happens to extend the
+			// same prefix. Different say value ⇒ no merge; the partial snapshot
+			// stays untouched.
+			await task.say("completion_result", "Shared prefix text, continued", undefined, false)
+
+			const reasoningMessages = task.clineMessages.filter((m) => m.type === "say" && m.say === "reasoning")
+			expect(reasoningMessages).toHaveLength(1)
+			expect(reasoningMessages[0].partial).toBe(true)
+			expect(reasoningMessages[0].text).toBe("Shared prefix text")
+			const completionMessages = task.clineMessages.filter(
+				(m) => m.type === "say" && m.say === "completion_result",
+			)
+			expect(completionMessages).toHaveLength(1)
+			expect(completionMessages[0].text).toBe("Shared prefix text, continued")
+		})
+	})
 })
 
 describe("Queued message processing after condense", () => {
