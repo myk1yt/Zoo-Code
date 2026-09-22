@@ -511,7 +511,14 @@ describe("App", () => {
 			unmount()
 			vi.advanceTimersByTime(90_000)
 
-			expect(postMessageMock.mock.calls.length).toBe(callsAfterMount)
+			// Other features (e.g. the dashboard stats stream) may post cleanup
+			// messages such as unsubscribeDashboardStats during unmount; the
+			// heartbeat watchdog contract is that no webviewHeartbeat messages
+			// are posted after unmount.
+			const newCalls = postMessageMock.mock.calls.slice(callsAfterMount)
+			expect(newCalls.filter((call) => (call[0] as { type?: string })?.type === "webviewHeartbeat")).toHaveLength(
+				0,
+			)
 		})
 	})
 })
