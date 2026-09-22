@@ -716,7 +716,10 @@ describe("webviewMessageHandler - requestRouterModels provider filter", () => {
 	})
 
 	it("posts a MiMo failure response and still posts routerModels when the refresh rejects", async () => {
-		flushModelsMock.mockRejectedValue(new Error("MiMo refresh failed"))
+		// mockRejectedValueOnce (not mockRejectedValue): a persistent implementation
+		// would leak into the later gemini/vertex unsaved-value tests in this file,
+		// which trigger flushModels for real and do not expect a rejection.
+		flushModelsMock.mockRejectedValueOnce(new Error("MiMo refresh failed"))
 		getModelsMock.mockResolvedValue({})
 
 		await webviewMessageHandler(mockProvider, {
