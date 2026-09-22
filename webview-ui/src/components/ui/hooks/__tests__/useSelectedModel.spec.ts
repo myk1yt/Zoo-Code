@@ -304,6 +304,42 @@ describe("useSelectedModel", () => {
 		},
 	)
 
+	it("mimo: selects a router-only model not present in the static catalog", () => {
+		// Regression guard: the merged catalog `{ ...mimoModels, ...routerModels.mimo }` must admit
+		// model IDs that exist ONLY in the router response. A static-only regression would validate
+		// the configured ID against `mimoModels`, miss it, and silently reset the selection to the
+		// static default — which the existing MiMo tests (both keyed on `mimoDefaultModelId`) cannot
+		// catch. This is the only possible guard for that regression.
+		const routerOnlyModelId = "mimo-router-only-preview"
+		const routerModelInfo: ModelInfo = {
+			maxTokens: 8192,
+			contextWindow: 262144,
+			supportsImages: false,
+			supportsPromptCache: true,
+			description: "Router-only MiMo model",
+		}
+
+		// Guard the test premise: if this ID were ever added to the static catalog, the test would
+		// silently degrade into the "prefers router data" coverage and must fail loudly instead.
+		expect(mimoModels[routerOnlyModelId as keyof typeof mimoModels]).toBeUndefined()
+
+		mockUseRouterModels.mockReturnValue(
+			createRouterModelsResult({ [providerIdentifiers.mimo]: { [routerOnlyModelId]: routerModelInfo } }),
+		)
+		mockUseOpenRouterModelProviders.mockReturnValue(createOpenRouterModelProvidersResult({}))
+
+		const { result } = renderHook(
+			() => useSelectedModel({ apiProvider: providerIdentifiers.mimo, apiModelId: routerOnlyModelId }),
+			{ wrapper: createWrapper() },
+		)
+
+		// The router-only ID survives validation instead of resetting to the static default.
+		expect(result.current.id).toBe(routerOnlyModelId)
+		expect(result.current.id).not.toBe(mimoDefaultModelId)
+		// The selection carries the ROUTER metadata, not a static fallback.
+		expect(result.current.info).toEqual(routerModelInfo)
+	})
+
 	it("uses router data for Poe", () => {
 		const modelInfo: ModelInfo = { contextWindow: 42_000, supportsPromptCache: false }
 		mockUseRouterModels.mockReturnValue(
@@ -1594,6 +1630,26 @@ describe("useSelectedModel", () => {
 
 			expect(result.current.id).toBe("kimi-k2-turbo-preview")
 			expect(result.current.info).toEqual(moonshotModels["kimi-k2-turbo-preview"])
+		})
+	})
+
+	describe("mimo provider", () => {
+		beforeEach(() => {
+			mockUseRouterModels.mockReturnValue(createRouterModelsResult({ mimo: {} }))
+			mockUseOpenRouterModelProviders.mockReturnValue(createOpenRouterModelProvidersResult({}))
+		})
+
+		it("should fallback to default when model ID is not in static or router models", () => {
+			const apiConfiguration: ProviderSettings = {
+				apiProvider: providerIdentifiers.mimo,
+				apiModelId: "non-existent-model",
+			}
+
+			const wrapper = createWrapper()
+			const { result } = renderHook(() => useSelectedModel(apiConfiguration), { wrapper })
+
+			expect(result.current.id).toBe(mimoDefaultModelId)
+			expect(result.current.info).toEqual(mimoModels[mimoDefaultModelId])
 		})
 	})
 })
