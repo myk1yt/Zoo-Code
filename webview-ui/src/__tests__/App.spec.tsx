@@ -90,6 +90,20 @@ vi.mock("@src/components/marketplace/MarketplaceView", () => ({
 	},
 }))
 
+// DashboardView is always mounted by App (hidden via display:none), so it must
+// be mocked like the other views; its stats-stream subscribe/unsubscribe
+// postMessages would otherwise pollute the webview heartbeat call counts.
+vi.mock("@src/components/dashboard/DashboardView", () => ({
+	__esModule: true,
+	default: function DashboardView({ onDone }: { visible: boolean; onDone: () => void }) {
+		return (
+			<div data-testid="dashboard-view" onClick={onDone}>
+				Dashboard View
+			</div>
+		)
+	},
+}))
+
 const mockUseExtensionState = vi.fn()
 
 // Mock i18next and react-i18next
