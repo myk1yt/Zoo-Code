@@ -193,6 +193,13 @@ const dynamicProviderExtras = {
 	[providerIdentifiers.deepseek]: {} as { apiKey?: string; baseUrl?: string },
 	[providerIdentifiers.moonshot]: {} as { apiKey?: string; baseUrl?: string },
 	[providerIdentifiers.mimo]: {} as { apiKey?: string; baseUrl?: string },
+	[providerIdentifiers.gemini]: {} as { apiKey?: string; baseUrl?: string },
+	[providerIdentifiers.vertex]: {} as {
+		projectId?: string
+		region?: string
+		keyFile?: string
+		jsonCredentials?: string
+	},
 	[providerIdentifiers.opencodeGo]: {} as { apiKey?: string },
 	[providerIdentifiers.kenari]: {} as { apiKey?: string },
 	[providerIdentifiers.nanogpt]: {} as { apiKey?: string },

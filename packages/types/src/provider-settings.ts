@@ -71,6 +71,8 @@ export const dynamicProviders = [
 	providerIdentifiers.deepseek,
 	providerIdentifiers.moonshot,
 	providerIdentifiers.mimo,
+	providerIdentifiers.gemini,
+	providerIdentifiers.vertex,
 	providerIdentifiers.opencodeGo,
 	providerIdentifiers.kenari,
 	providerIdentifiers.nanogpt,

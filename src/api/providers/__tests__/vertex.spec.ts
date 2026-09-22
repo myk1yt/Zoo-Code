@@ -224,7 +224,7 @@ describe("VertexHandler", () => {
 			expect(includedCount).toBe(1)
 		})
 
-		it("should correctly handle :thinking suffix for gemini-3.7-flash", () => {
+		it("honors a known model id with a :thinking suffix and strips the suffix from the returned id", () => {
 			const testHandler = new VertexHandler({
 				apiModelId: "gemini-3.7-flash:thinking",
 				vertexProjectId: "test-project",
@@ -236,6 +236,8 @@ describe("VertexHandler", () => {
 			expect(modelInfo.info).toBeDefined()
 			expect(modelInfo.info.excludedTools).toContain("apply_diff")
 			expect(modelInfo.info.includedTools).toContain("edit")
+			expect(modelInfo.info.maxTokens).toBe(vertexModels["gemini-3.7-flash"].maxTokens)
+			expect(modelInfo.info.contextWindow).toBe(vertexModels["gemini-3.7-flash"].contextWindow)
 			expect(modelInfo.reasoning).toBeDefined()
 		})
 
@@ -258,7 +260,24 @@ describe("VertexHandler", () => {
 			expect(modelInfo.info.tiers).toBeUndefined()
 		})
 
-		it("should resolve to the shared vertex default when apiModelId is undefined", () => {
+		it("preserves an unlisted gemini-* id with Gemini-family fallback metadata and no pricing fields", () => {
+			const testHandler = new VertexHandler({
+				apiModelId: "gemini-9.9-flash-exp",
+				vertexProjectId: "test-project",
+				vertexRegion: "us-central1",
+			})
+
+			const modelInfo = testHandler.getModel()
+			expect(modelInfo.id).toBe("gemini-9.9-flash-exp")
+			expect(modelInfo.info.contextWindow).toBe(1_048_576)
+			expect(modelInfo.info.inputPrice).toBeUndefined()
+			expect(modelInfo.info.outputPrice).toBeUndefined()
+			expect(modelInfo.info.cacheReadsPrice).toBeUndefined()
+			expect(modelInfo.info.cacheWritesPrice).toBeUndefined()
+			expect(modelInfo.info.tiers).toBeUndefined()
+		})
+
+		it("resolves to the vertex default model with its static info when apiModelId is absent", () => {
 			const testHandler = new VertexHandler({
 				vertexProjectId: "test-project",
 				vertexRegion: "us-central1",
@@ -273,22 +292,6 @@ describe("VertexHandler", () => {
 					includedTools: expect.arrayContaining(["edit"]),
 				}),
 			)
-		})
-
-		it("should honor an unknown unsuffixed gemini-* id and drop pricing fields", () => {
-			const testHandler = new VertexHandler({
-				apiModelId: "gemini-9.9-flash-exp",
-				vertexProjectId: "test-project",
-				vertexRegion: "us-central1",
-			})
-
-			const modelInfo = testHandler.getModel()
-			expect(modelInfo.id).toBe("gemini-9.9-flash-exp")
-			expect(modelInfo.info.inputPrice).toBeUndefined()
-			expect(modelInfo.info.outputPrice).toBeUndefined()
-			expect(modelInfo.info.cacheReadsPrice).toBeUndefined()
-			expect(modelInfo.info.cacheWritesPrice).toBeUndefined()
-			expect(modelInfo.info.tiers).toBeUndefined()
 		})
 
 		it("should match a mixed-case unknown gemini-* id case-insensitively and keep the configured casing", () => {
