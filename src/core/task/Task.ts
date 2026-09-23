@@ -3802,6 +3802,48 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 									cacheReadTokens: tokens.cacheRead,
 									cost: tokens.total ?? costResult.totalCost,
 								})
+
+								// ── Usage Stats: terminal finalize ──────────────────────────
+								// captureUsageData is the single terminal boundary for completed/cancelled
+								// API attempts. We record the final usage event here.
+								// (Architecture report section 5.5-5.8: terminal finalize only, no chunk-level append)
+								if (this.usageRecorder) {
+									// B1 fix: include apiReqIndex so each tool-use turn produces a unique
+									// requestKey. Previously requestKey = taskId:retryAttempt, which was
+									// identical for every turn of a task (retryAttempt resets to 0 per turn),
+									// causing the idempotency dedupe to drop all but the first turn's usage.
+									const requestKey = `${this.taskId}:${apiReqIndex}:${currentItem.retryAttempt ?? 0}`
+									const ctx: UsageRecordingContext = {
+										taskId: this.taskId,
+										parentTaskId: this.parentTaskId,
+										rootTaskId: this.rootTaskId,
+										provider: String(
+											this.apiConfiguration.apiProvider &&
+												!isRetiredProvider(this.apiConfiguration.apiProvider)
+												? this.apiConfiguration.apiProvider
+												: "unknown",
+										),
+										model: getModelId(this.apiConfiguration) || "unknown",
+										mode: this._taskMode || defaultModeSlug,
+										attempt: currentItem.retryAttempt ?? 0,
+										inputTokens: tokens.input,
+										outputTokens: tokens.output,
+										cacheWriteTokens: tokens.cacheWrite,
+										cacheReadTokens: tokens.cacheRead,
+										totalCost: tokens.total,
+										// V1 semantics: provider-reported values, inclusion unknown
+										// (aggregator handles double-counting via inclusion metadata)
+										cacheReadInInput: "unknown",
+										cacheWriteInInput: "unknown",
+										reasoningInOutput: "unknown",
+										costSource: "provider",
+										tokenSource: "provider",
+										endpoint: resolveEndpoint(this.apiConfiguration),
+									}
+									// Fire-and-forget: store error must not block task
+									this.usageRecorder.finalizeUsageEvent(requestKey, status, ctx).catch(() => {})
+								}
+								// ── End Usage Stats ──────────────────────────────────────────
 							}
 
 							// ── Usage Stats: terminal finalize ──────────────────────────
