@@ -4619,6 +4619,17 @@ export class ClineProvider
 					// non-fatal
 				}
 
+				// The child's removal already posted an empty-current-task state, and the
+				// resumed parent would not post again until its first streamed update, so
+				// push the restored messages (including the todo list) once here.
+				if (this.isViewLaunched) {
+					try {
+						await this.postStateToWebviewWithoutTaskHistory()
+					} catch {
+						// non-fatal: the resumed task posts state on its next update
+					}
+				}
+
 				let admitContinuation!: () => void
 				const continuationAdmitted = new Promise<void>((resolve) => {
 					admitContinuation = resolve

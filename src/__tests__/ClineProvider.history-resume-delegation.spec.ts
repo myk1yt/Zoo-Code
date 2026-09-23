@@ -496,6 +496,120 @@ describe("History resume delegation - parent metadata transitions", () => {
 		)
 	})
 
+	it("pushes restored parent state to the webview once after hydrating the reopened instance", async () => {
+		const parentItem = {
+			id: "parent-push",
+			status: "delegated",
+			awaitingChildId: "child-push",
+			childIds: ["child-push"],
+			ts: 100,
+			task: "Parent",
+			tokensIn: 0,
+			tokensOut: 0,
+			totalCost: 0,
+		}
+		const overwriteClineMessages = vi.fn().mockResolvedValue(undefined)
+		const overwriteApiConversationHistory = vi.fn().mockResolvedValue(undefined)
+		const resumeAfterDelegation = vi.fn().mockResolvedValue(undefined)
+		const postStateToWebviewWithoutTaskHistory = vi.fn().mockResolvedValue(undefined)
+		const parentInstance = {
+			taskId: "parent-push",
+			abort: false,
+			abandoned: false,
+			overwriteClineMessages,
+			overwriteApiConversationHistory,
+			resumeAfterDelegation,
+		}
+		let currentTask: unknown = { taskId: "child-push" }
+		const taskHistoryStore = makeTaskHistoryStoreStub({ id: "child-push", status: "active" }, parentItem)
+		const provider = makeProviderStub({
+			contextProxy: { globalStorageUri: { fsPath: "/storage" } },
+			getTaskWithId: vi.fn().mockResolvedValue({ historyItem: parentItem }),
+			emit: vi.fn(),
+			isViewLaunched: true,
+			getCurrentTask: vi.fn(() => currentTask),
+			removeClineFromStack: vi.fn(async () => {
+				currentTask = undefined
+			}),
+			createTaskWithHistoryItem: vi.fn(async () => (currentTask = parentInstance)),
+			postMessageToWebview: vi.fn().mockResolvedValue(undefined),
+			postStateToWebviewWithoutTaskHistory,
+			taskHistoryStore,
+		})
+
+		vi.mocked(readTaskMessages).mockResolvedValue([{ ts: 1, type: "say", say: "text", text: "restored UI" }])
+		vi.mocked(readApiMessages).mockResolvedValue([{ ts: 1, role: "user", content: "restored API" }])
+
+		const result = await ClineProvider.prototype.reopenParentFromDelegation.call(provider, {
+			parentTaskId: "parent-push",
+			childTaskId: "child-push",
+			completionResultSummary: "Done",
+		})
+
+		expect(result).toBe(true)
+		// The restored messages (including the todo list) reach the webview immediately,
+		// instead of waiting for the resumed parent's first streamed update.
+		expect(postStateToWebviewWithoutTaskHistory).toHaveBeenCalledTimes(1)
+		// The scheduler admission is fire-and-forget, so wait for the resume to land
+		// before asserting the push strictly precedes it.
+		await vi.waitFor(() => expect(resumeAfterDelegation).toHaveBeenCalledTimes(1))
+		const postOrder = postStateToWebviewWithoutTaskHistory.mock.invocationCallOrder[0]
+		expect(overwriteClineMessages.mock.invocationCallOrder[0]).toBeLessThan(postOrder)
+		expect(overwriteApiConversationHistory.mock.invocationCallOrder[0]).toBeLessThan(postOrder)
+		expect(postOrder).toBeLessThan(resumeAfterDelegation.mock.invocationCallOrder[0])
+	})
+
+	it("does not push restored parent state when the view is not launched", async () => {
+		const parentItem = {
+			id: "parent-nopush",
+			status: "delegated",
+			awaitingChildId: "child-nopush",
+			childIds: ["child-nopush"],
+			ts: 100,
+			task: "Parent",
+			tokensIn: 0,
+			tokensOut: 0,
+			totalCost: 0,
+		}
+		const resumeAfterDelegation = vi.fn().mockResolvedValue(undefined)
+		const postStateToWebviewWithoutTaskHistory = vi.fn().mockResolvedValue(undefined)
+		const parentInstance = {
+			taskId: "parent-nopush",
+			abort: false,
+			abandoned: false,
+			overwriteClineMessages: vi.fn().mockResolvedValue(undefined),
+			overwriteApiConversationHistory: vi.fn().mockResolvedValue(undefined),
+			resumeAfterDelegation,
+		}
+		let currentTask: unknown = { taskId: "child-nopush" }
+		const taskHistoryStore = makeTaskHistoryStoreStub({ id: "child-nopush", status: "active" }, parentItem)
+		const provider = makeProviderStub({
+			contextProxy: { globalStorageUri: { fsPath: "/storage" } },
+			getTaskWithId: vi.fn().mockResolvedValue({ historyItem: parentItem }),
+			emit: vi.fn(),
+			getCurrentTask: vi.fn(() => currentTask),
+			removeClineFromStack: vi.fn(async () => {
+				currentTask = undefined
+			}),
+			createTaskWithHistoryItem: vi.fn(async () => (currentTask = parentInstance)),
+			postStateToWebviewWithoutTaskHistory,
+			taskHistoryStore,
+		})
+
+		vi.mocked(readTaskMessages).mockResolvedValue([{ ts: 1, type: "say", say: "text", text: "restored UI" }])
+		vi.mocked(readApiMessages).mockResolvedValue([{ ts: 1, role: "user", content: "restored API" }])
+
+		const result = await ClineProvider.prototype.reopenParentFromDelegation.call(provider, {
+			parentTaskId: "parent-nopush",
+			childTaskId: "child-nopush",
+			completionResultSummary: "Done",
+		})
+
+		expect(result).toBe(true)
+		expect(postStateToWebviewWithoutTaskHistory).not.toHaveBeenCalled()
+		await vi.waitFor(() => expect(resumeAfterDelegation).toHaveBeenCalledTimes(1))
+	})
+
 	it("does not reopen or overwrite a parent when its UI history cannot be read", async () => {
 		const parentItem = {
 			id: "parent-read-failure",
