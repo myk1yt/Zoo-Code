@@ -375,6 +375,7 @@ describe("ClineProvider - Lock API Config Across Modes", () => {
 			vi.spyOn(provider.providerSettingsManager, "getProfile").mockResolvedValue({
 				name: "architect-profile",
 				apiProvider: providerIdentifiers.anthropic,
+				apiKey: "test-api-key",
 			})
 
 			const activateProfileSpy = vi.spyOn(provider.providerSettingsManager, "activateProfile").mockResolvedValue({
