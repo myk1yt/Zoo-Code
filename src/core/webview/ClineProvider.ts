@@ -270,7 +270,13 @@ export class ClineProvider
 	 */
 	private taskHistoryStoreReady: Promise<void> = Promise.resolve()
 	private globalStateWriteThroughTimer: ReturnType<typeof setTimeout> | null = null
-	private static readonly GLOBAL_STATE_WRITE_THROUGH_DEBOUNCE_MS = 5000 // 5 seconds
+	private static readonly GLOBAL_STATE_WRITE_THROUGH_DEBOUNCE_MS = 60000 // 1 minute
+	/**
+	 * Max entries written through to globalState. The write-through exists only
+	 * as a downgrade fallback (per-task files are authoritative), so older
+	 * entries past this cap are omitted to keep the Memento payload bounded.
+	 */
+	private static readonly GLOBAL_STATE_WRITE_THROUGH_MAX_ITEMS = 1000
 	public static readonly PENDING_OPERATION_TIMEOUT_MS = 30000 // 30 seconds
 	private providerProfileMutationQueue = Promise.resolve()
 	private historyTaskCreationQueue = Promise.resolve()
@@ -3327,12 +3333,14 @@ export class ClineProvider
 
 		this.globalStateWriteThroughTimer = setTimeout(async () => {
 			this.globalStateWriteThroughTimer = null
+			let itemCount = 0
 			try {
-				const items = this.taskHistoryStore.getAll()
+				const items = this.getGlobalStateWriteThroughItems()
+				itemCount = items.length
 				await this.updateGlobalState("taskHistory", items)
 			} catch (err) {
 				this.log(
-					`[scheduleGlobalStateWriteThrough] Failed: ${err instanceof Error ? err.message : String(err)}`,
+					`[scheduleGlobalStateWriteThrough] Failed to write ${itemCount} items: ${err instanceof Error ? err.message : String(err)}`,
 				)
 			}
 		}, ClineProvider.GLOBAL_STATE_WRITE_THROUGH_DEBOUNCE_MS)
@@ -3347,10 +3355,20 @@ export class ClineProvider
 			this.globalStateWriteThroughTimer = null
 		}
 
-		const items = this.taskHistoryStore.getAll()
+		const items = this.getGlobalStateWriteThroughItems()
 		this.updateGlobalState("taskHistory", items).catch((err) => {
-			this.log(`[flushGlobalStateWriteThrough] Failed: ${err instanceof Error ? err.message : String(err)}`)
+			this.log(
+				`[flushGlobalStateWriteThrough] Failed to write ${items.length} items: ${err instanceof Error ? err.message : String(err)}`,
+			)
 		})
+	}
+
+	/**
+	 * Newest task history entries eligible for the globalState write-through,
+	 * capped to keep the downgrade-fallback payload bounded.
+	 */
+	private getGlobalStateWriteThroughItems(): HistoryItem[] {
+		return this.taskHistoryStore.getAll().slice(0, ClineProvider.GLOBAL_STATE_WRITE_THROUGH_MAX_ITEMS)
 	}
 
 	/**

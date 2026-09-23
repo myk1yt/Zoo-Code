@@ -941,4 +941,65 @@ describe("ClineProvider Task History Synchronization", () => {
 			expect(listener).toHaveBeenCalledWith("child-task", {}, {})
 		})
 	})
+
+	describe("globalState write-through", () => {
+		const seedStoreCache = (count: number, baseTs: number) => {
+			for (let i = 0; i < count; i++) {
+				const entry = createHistoryItem({ id: `wt-${i}`, task: `Task ${i}`, ts: baseTs + i })
+				provider.taskHistoryStore["cache"].set(entry.id, entry)
+			}
+		}
+
+		it("caps the write-through payload to the newest 1000 entries", async () => {
+			seedStoreCache(1001, 1_700_000_000_000)
+
+			provider["flushGlobalStateWriteThrough"]()
+			await new Promise((resolve) => setTimeout(resolve, 10))
+
+			const write = vi.mocked(mockContext.globalState.update).mock.calls.find((call) => call[0] === "taskHistory")
+			expect(write).toBeDefined()
+			const payload = write![1] as HistoryItem[]
+			expect(payload.length).toBe(1000)
+			// getAll() sorts newest first; the capped payload drops the oldest entry.
+			expect(payload.some((item) => item.id === "wt-1000")).toBe(true)
+			expect(payload.some((item) => item.id === "wt-0")).toBe(false)
+		})
+
+		it("writes every entry when the store holds fewer than the cap", async () => {
+			seedStoreCache(3, 1_700_000_000_000)
+
+			provider["flushGlobalStateWriteThrough"]()
+			await new Promise((resolve) => setTimeout(resolve, 10))
+
+			const write = vi.mocked(mockContext.globalState.update).mock.calls.find((call) => call[0] === "taskHistory")
+			expect(write).toBeDefined()
+			expect((write![1] as HistoryItem[]).length).toBe(3)
+		})
+
+		it("debounces the write-through for 60 seconds", async () => {
+			vi.useFakeTimers()
+			try {
+				provider["scheduleGlobalStateWriteThrough"]()
+
+				await vi.advanceTimersByTimeAsync(5000)
+				expect(mockContext.globalState.update).not.toHaveBeenCalledWith("taskHistory", expect.anything())
+
+				await vi.advanceTimersByTimeAsync(55000)
+				expect(mockContext.globalState.update).toHaveBeenCalledWith("taskHistory", expect.any(Array))
+			} finally {
+				vi.useRealTimers()
+			}
+		})
+
+		it("includes the item count in the failure log", async () => {
+			seedStoreCache(2, 1_700_000_000_000)
+			vi.mocked(mockContext.globalState.update).mockRejectedValueOnce(new Error("memento full"))
+			const logSpy = vi.spyOn(provider, "log")
+
+			provider["flushGlobalStateWriteThrough"]()
+			await new Promise((resolve) => setTimeout(resolve, 10))
+
+			expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Failed to write 2 items"))
+		})
+	})
 })
