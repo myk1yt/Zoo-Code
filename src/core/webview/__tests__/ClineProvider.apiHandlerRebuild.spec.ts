@@ -584,6 +584,7 @@ describe("ClineProvider - API Handler Rebuild Guard", () => {
 				name: "ask-profile",
 				id: "ask-id",
 				apiProvider: providerIdentifiers.openrouter,
+				openRouterApiKey: "test-key",
 				openRouterModelId: "openai/gpt-4.1-mini",
 			})
 			provider["providerSettingsManager"].activateProfile = vi.fn().mockResolvedValue({

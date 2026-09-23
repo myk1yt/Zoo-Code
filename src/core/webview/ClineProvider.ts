@@ -71,6 +71,7 @@ import { CloudService, getRooCodeApiUrl } from "@roo-code/cloud"
 
 import { Package } from "../../shared/package"
 import { findLast } from "../../shared/array"
+import { checkExistKey } from "../../shared/checkExistApiConfig"
 import { supportPrompt } from "../../shared/support-prompt"
 import { GlobalFileNames } from "../../shared/globalFileNames"
 import { Mode, defaultModeSlug, getModeBySlug } from "../../shared/modes"
@@ -1955,11 +1956,28 @@ export class ClineProvider
 				const hasActualSettings = !!fullProfile.apiProvider
 
 				if (hasActualSettings) {
-					await this.activateProviderProfileUnlocked(
-						{ name: profile.name },
-						targetTask === null ? { skipCurrentTaskRebuild: true } : undefined,
-						signal,
-					)
+					// The webview evicts the chat view to the provider-select welcome
+					// screen when the posted apiConfiguration fails its key gate, so a
+					// mode-mapped profile must pass that same check before activation.
+					let zooCodeIsAuthenticated = false
+					try {
+						const { isZooCodeAuthenticated } = await import("../../services/zoo-code-auth")
+						zooCodeIsAuthenticated = await isZooCodeAuthenticated()
+					} catch {
+						// Keep the default unauthenticated state if the optional Zoo Code auth service is unavailable.
+					}
+
+					if (checkExistKey(fullProfile, zooCodeIsAuthenticated)) {
+						await this.activateProviderProfileUnlocked(
+							{ name: profile.name },
+							targetTask === null ? { skipCurrentTaskRebuild: true } : undefined,
+							signal,
+						)
+					} else {
+						this.log(
+							`Mode '${newMode}' is mapped to profile '${profile.name}' without usable API credentials; keeping the current configuration.`,
+						)
+					}
 				} else {
 					// The task will continue with the current/default configuration.
 				}

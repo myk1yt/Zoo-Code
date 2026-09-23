@@ -2142,7 +2142,7 @@ describe("ClineProvider", () => {
 			listConfig: vi.fn().mockResolvedValue([profile]),
 			activateProfile: vi.fn().mockResolvedValue(profile),
 			setModeConfig: vi.fn(),
-			getProfile: vi.fn().mockResolvedValue(profile),
+			getProfile: vi.fn().mockResolvedValue({ ...profile, apiKey: "test-api-key" }),
 		} as any
 
 		// Switch to architect mode
@@ -2739,7 +2739,7 @@ describe("ClineProvider", () => {
 				listConfig: vi.fn().mockResolvedValue([profile]),
 				activateProfile: vi.fn().mockResolvedValue(profile),
 				setModeConfig: vi.fn(),
-				getProfile: vi.fn().mockResolvedValue(profile),
+				getProfile: vi.fn().mockResolvedValue({ ...profile, apiKey: "test-api-key" }),
 			} as any
 
 			// Switch to architect mode
@@ -2755,6 +2755,28 @@ describe("ClineProvider", () => {
 
 			// Verify state was posted to webview
 			expect(mockPostMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "state" }))
+		})
+
+		it("does not activate a mode-mapped profile whose provider has no usable credentials", async () => {
+			vi.spyOn(provider.providerSettingsManager, "getModeConfigId").mockResolvedValue("keyless-config-id")
+			vi.spyOn(provider.providerSettingsManager, "listConfig").mockResolvedValue([
+				{ name: "keyless-config", id: "keyless-config-id", apiProvider: providerIdentifiers.anthropic },
+			])
+			vi.spyOn(provider.providerSettingsManager, "getProfile").mockResolvedValue({
+				name: "keyless-config",
+				id: "keyless-config-id",
+				apiProvider: providerIdentifiers.anthropic,
+			})
+			const activateProfileSpy = vi.spyOn(provider.providerSettingsManager, "activateProfile")
+			const logSpy = vi.spyOn(provider, "log")
+
+			// Switch to architect mode
+			await provider.handleModeSwitch("architect")
+
+			// The keyless profile must not be activated; the current configuration is kept.
+			expect(activateProfileSpy).not.toHaveBeenCalled()
+			expect(mockContext.globalState.update).not.toHaveBeenCalledWith("currentApiConfigName", "keyless-config")
+			expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("without usable API credentials"))
 		})
 
 		test("saves current config when switching to mode without config", async () => {
