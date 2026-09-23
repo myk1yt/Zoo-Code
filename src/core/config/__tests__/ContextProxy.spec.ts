@@ -539,6 +539,74 @@ describe("ContextProxy", () => {
 		})
 	})
 
+	describe("plaintext secret migration", () => {
+		it("migrates mimoApiKey and poeApiKey from global state to secret storage", async () => {
+			clearAllMocks()
+			mockSecrets.get.mockResolvedValue(undefined)
+			mockGlobalState.get.mockImplementation((key: string) => {
+				if (key === "mimoApiKey") {
+					return "plaintext-mimo-key"
+				}
+				if (key === "poeApiKey") {
+					return "plaintext-poe-key"
+				}
+				return undefined
+			})
+
+			const proxyWithPlaintextKeys = new ContextProxy(mockContext)
+			await proxyWithPlaintextKeys.initialize()
+
+			expect(mockSecrets.store).toHaveBeenCalledWith("mimoApiKey", "plaintext-mimo-key")
+			expect(mockSecrets.store).toHaveBeenCalledWith("poeApiKey", "plaintext-poe-key")
+			expect(mockGlobalState.update).toHaveBeenCalledWith("mimoApiKey", undefined)
+			expect(mockGlobalState.update).toHaveBeenCalledWith("poeApiKey", undefined)
+			expect(proxyWithPlaintextKeys.getSecret("mimoApiKey")).toBe("plaintext-mimo-key")
+			expect(proxyWithPlaintextKeys.getSecret("poeApiKey")).toBe("plaintext-poe-key")
+		})
+
+		it("is idempotent when the value already exists in secret storage", async () => {
+			clearAllMocks()
+			mockSecrets.get.mockImplementation((key: string) => {
+				if (key === "mimoApiKey") {
+					return Promise.resolve("secret-mimo-key")
+				}
+				return Promise.resolve(undefined)
+			})
+			mockGlobalState.get.mockImplementation((key: string) => {
+				if (key === "mimoApiKey") {
+					return "plaintext-mimo-key"
+				}
+				return undefined
+			})
+
+			const proxyWithExistingSecret = new ContextProxy(mockContext)
+			await proxyWithExistingSecret.initialize()
+
+			// The plaintext globalState value must not overwrite the stored secret.
+			const mimoStoreCalls = mockSecrets.store.mock.calls.filter((call: unknown[]) => call[0] === "mimoApiKey")
+			expect(mimoStoreCalls).toHaveLength(0)
+			const mimoGlobalUpdates = mockGlobalState.update.mock.calls.filter(
+				(call: unknown[]) => call[0] === "mimoApiKey",
+			)
+			expect(mimoGlobalUpdates).toHaveLength(0)
+			expect(proxyWithExistingSecret.getSecret("mimoApiKey")).toBe("secret-mimo-key")
+		})
+
+		it("does not touch global state when no plaintext value exists", async () => {
+			clearAllMocks()
+			mockSecrets.get.mockResolvedValue(undefined)
+			mockGlobalState.get.mockReturnValue(undefined)
+
+			const proxyWithoutPlaintext = new ContextProxy(mockContext)
+			await proxyWithoutPlaintext.initialize()
+
+			const migratedKeys = mockSecrets.store.mock.calls
+				.map((call: unknown[]) => call[0])
+				.filter((key: unknown) => key === "mimoApiKey" || key === "poeApiKey")
+			expect(migratedKeys).toHaveLength(0)
+		})
+	})
+
 	describe("getProviderSettings", () => {
 		it("should sanitize invalid apiProvider before parsing", async () => {
 			// Reset and create a new proxy with an unknown provider in state

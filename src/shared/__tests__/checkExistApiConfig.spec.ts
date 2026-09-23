@@ -156,6 +156,38 @@ describe("checkExistKey", () => {
 		expect(checkExistKey(config, true)).toBe(true)
 	})
 
+	it("should return true when mimoApiKey is defined", () => {
+		const config: ProviderSettings = {
+			apiProvider: providerIdentifiers.mimo,
+			mimoApiKey: "mimo-key",
+		}
+		expect(checkExistKey(config)).toBe(true)
+	})
+
+	it("should return false for mimo provider without mimoApiKey", () => {
+		const config: ProviderSettings = {
+			apiProvider: providerIdentifiers.mimo,
+			mimoBaseUrl: "https://api.xiaomimimo.com/v1",
+		}
+		expect(checkExistKey(config)).toBe(false)
+	})
+
+	it("should return true when poeApiKey is defined", () => {
+		const config: ProviderSettings = {
+			apiProvider: providerIdentifiers.poe,
+			poeApiKey: "poe-key",
+		}
+		expect(checkExistKey(config)).toBe(true)
+	})
+
+	it("should return false for poe provider without poeApiKey", () => {
+		const config: ProviderSettings = {
+			apiProvider: providerIdentifiers.poe,
+			poeBaseUrl: "https://api.poe.com/v1",
+		}
+		expect(checkExistKey(config)).toBe(false)
+	})
+
 	it("should ignore zooCodeIsAuthenticated for non-zoo-gateway providers", () => {
 		const config: ProviderSettings = {
 			apiProvider: providerIdentifiers.openrouter,
