@@ -89,6 +89,10 @@ export class ContextProxy {
 
 		await Promise.all(promises)
 
+		// Migration: Move API keys that were persisted in plaintext global state
+		// into secret storage (e.g. mimoApiKey/poeApiKey before they were registered).
+		await this.migratePlaintextSecrets()
+
 		// Migration: Check for old nested image generation settings and migrate them
 		await this.migrateImageGenerationSettings()
 
@@ -273,6 +277,42 @@ export class ContextProxy {
 		} catch (error) {
 			logger.error(
 				`Error during invalid API provider migration: ${error instanceof Error ? error.message : String(error)}`,
+			)
+		}
+	}
+
+	/**
+	 * Migrates API keys that were persisted in plaintext global state into
+	 * secret storage.
+	 *
+	 * mimoApiKey and poeApiKey were missing from SECRET_STATE_KEYS, so their
+	 * values were written to globalState instead of secrets. For each secret key
+	 * with no secret-storage entry, move any plaintext globalState value into
+	 * secrets and clear it from globalState.
+	 *
+	 * Idempotent: once a value exists in secret storage the migration is a no-op.
+	 */
+	private async migratePlaintextSecrets() {
+		try {
+			const secretKeys = [...SECRET_STATE_KEYS, ...GLOBAL_SECRET_KEYS]
+
+			for (const key of secretKeys) {
+				if (this.secretCache[key]) {
+					continue
+				}
+
+				const plaintextValue = this.originalContext.globalState.get<string>(key)
+
+				if (typeof plaintextValue === "string" && plaintextValue.length > 0) {
+					logger.info(`Migrating ${key} from global state to secret storage`)
+					await this.originalContext.secrets.store(key, plaintextValue)
+					this.secretCache[key] = plaintextValue
+					await this.originalContext.globalState.update(key, undefined)
+				}
+			}
+		} catch (error) {
+			logger.error(
+				`Error during plaintext secret migration: ${error instanceof Error ? error.message : String(error)}`,
 			)
 		}
 	}
